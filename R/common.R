@@ -2670,6 +2670,9 @@ editImage <- function(optionsJson) {
   # if something fails, the default behaviour is to use the old plot and do nothing.
     results <- try({
 
+      # warnings from jaspGraphs::plotediting and when rendering the figure as a png are stored in here (e.g., points fall outside of the figure bounds)
+      warningsEnv <- new.env()
+
       # copy plot and check if we edit it
       plot <- if (isGgplot) ggplot2:::plot_clone(oldPlot) else oldPlot
 
@@ -2679,12 +2682,10 @@ editImage <- function(optionsJson) {
         newOpts$xAxis <- list(type = oldOpts$xAxis$type, settings = newOpts$xAxis$settings[names(newOpts$xAxis$settings) != "type"])
         newOpts$yAxis <- list(type = oldOpts$yAxis$type, settings = newOpts$yAxis$settings[names(newOpts$yAxis$settings) != "type"])
 
-        warningsEnv <- new.env()
-        warningsEnv$messages <- character()
-
+        warningsEnv$plotEditingWarnings <- character()
         plot <- withCallingHandlers(
            jaspGraphs::plotEditing(plot, newOpts),
-           plotediting = function(condition) { warningsEnv$messages <- c(warningsEnv$messages, condition$message) }
+           plotediting = function(condition) { warningsEnv$plotEditingWarnings <- c(warningsEnv$plotEditingWarnings, condition$message) }
         )
       }
 
@@ -2694,9 +2695,13 @@ editImage <- function(optionsJson) {
       } else {
 
         # plot is modified or needs to be resized, let's save the new plot
-        newPlot <- list()
-        content <- .writeImage(width = width, height = height, plot = plot, obj = TRUE, relativePathpng = plotName) #Should we switch this over to the writeImage from jaspResults or we could also just directly use jaspPlot
+        warningsEnv$ggplot2Warnings <- character()
+        content <- withCallingHandlers(
+          .writeImage(width = width, height = height, plot = plot, obj = TRUE, relativePathpng = plotName), #Should we switch this over to the writeImage from jaspResults or we could also just directly use jaspPlot
+          warning = function(w) { warningsEnv$ggplot2Warnings <- c(warningsEnv$ggplot2Warnings, w$message) }
+        )
 
+        newPlot <- list()
         newPlot[["data"]]     <- content[["png"]]
         newPlot[["width"]]    <- width
         newPlot[["height"]]   <- height
