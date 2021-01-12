@@ -2678,7 +2678,14 @@ editImage <- function(optionsJson) {
         oldOpts       <- jaspGraphs::plotEditingOptions(plot)
         newOpts$xAxis <- list(type = oldOpts$xAxis$type, settings = newOpts$xAxis$settings[names(newOpts$xAxis$settings) != "type"])
         newOpts$yAxis <- list(type = oldOpts$yAxis$type, settings = newOpts$yAxis$settings[names(newOpts$yAxis$settings) != "type"])
-        plot          <- jaspGraphs::plotEditing(plot, newOpts)
+
+        warningsEnv <- new.env()
+        warningsEnv$messages <- character()
+
+        plot <- withCallingHandlers(
+           jaspGraphs::plotEditing(plot, newOpts),
+           plotediting = function(condition) { warningsEnv$messages <- c(warningsEnv$messages, condition$message) }
+        )
       }
 
       # plot editing did nothing or was cancelled
