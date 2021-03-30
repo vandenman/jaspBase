@@ -7,7 +7,7 @@ postInstallFixes <- function(folderToFix) {
   else 
   {
     #We do not have that function available so we will need to start JASPEngine ourselves, but where is it?
-    jaspEngineLocation <- ifElse(Sys.getenv("JASPENGINE_LOCATION") != "", Sys.getenv("JASPENGINE_LOCATION"), paste0(getwd(), "/../JASPEngine"))
+    jaspEngineLocation <- Sys.getenv("JASPENGINE_LOCATION", unset = file.path(getwd(), "..", "JASPEngine"))
     jaspEngineCall     <- paste0(jaspEngineLocation, ' "', folderToFix ,'"')
     #print(paste0("Calling JASPEngine as: '", jaspEngineCall ,"'"))
     system(jaspEngineCall)
