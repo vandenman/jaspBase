@@ -74,20 +74,52 @@ installJaspModuleFromRenv <- function(modulePkg, libPathsToUse, moduleLibrary, r
   # it does copy those pkg to the cache before symlinking them
   # inspired by https://stackoverflow.com/a/36873741/4917834
   # it does appear to be necessary within rstudio and when the pkgs from jasp-required-files are present in a libPath
-  old.lib.loc <- .libPaths()
-  on.exit(assign(".lib.loc", old.lib.loc,   envir = environment(.libPaths)))
-          assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
+  # old.lib.loc <- .libPaths()
+  # on.exit(assign(".lib.loc", old.lib.loc,   envir = environment(.libPaths)))
+  #         assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
 
 
   lib <- renv::paths[["library"]](project = moduleLibrary)
   if (!dir.exists(lib))
     dir.create(lib, recursive = TRUE)
-
+  print("before restore")
+  
+  # assignFunctionInPackage(
+  #   fun     = function (fmt = "", ..., con = stdout()) {
+  #     if (fmt == "Retrieving '%s' ...")
+  #       print("yo I'm here!")
+  #     print(sprintf(fmt, ...))
+  #     # if (!is.null(fmt) && renv:::renv_verbose()) 
+  #     #   writeLines(sprintf(fmt, ...), con = con)
+  #   },
+  #   name    = "vwritef",
+  #   package = "renv"
+  # )
+  # 
+  # assignFunctionInPackage(
+  #   fun     = renv_restore_run_actions,
+  #   name    = "renv_restore_run_actions",
+  #   package = "renv"
+  # )
+  # 
+  # assignFunctionInPackage(
+  #   fun     = renv_retrieve_impl,
+  #   name    = "renv_retrieve_impl",
+  #   package = "renv"
+  # )
+  
+  # this doesn't do anything, but without it the installation of modules with a lockfile crashes...
+  assignFunctionInPackage(
+    fun     = renv_remotes_resolve_path,
+    name    = "renv_remotes_resolve_path",
+    package = "renv"
+  )
+  
   renv::restore(project  = moduleLibraryTemp,
                 library  = moduleLibrary,
                 lockfile = lockFileTemp, clean = TRUE,
                 prompt   = prompt)
-
+  print("after restore")
   moduleInfo         <- getModuleInfo(modulePkg)
   correctlyInstalled <- installModulePkg(modulePkg, moduleLibrary, prompt, moduleInfo)
 
@@ -125,6 +157,183 @@ installJaspModuleFromRenv <- function(modulePkg, libPathsToUse, moduleLibrary, r
   return("succes!")
 }
 
+renv_download <- function (url, destfile, type = NULL, quiet = FALSE, headers = NULL) {
+  override <- getOption("renv.download.override")
+  if (is.function(override)) {
+    result <- renv:::catch(renv:::override(url = url, destfile = destfile, 
+                             quiet = quiet, mode = "wb", headers = headers))
+    if (inherits(result, "error")) 
+      renv:::renv_download_error(result, "%s", renv:::conditionMessage(result))
+    return(destfile)
+  }
+  if (quiet) 
+    renv:::renv_scope_options(renv.verbose = FALSE)
+  url <- chartr("\\", "/", url)
+  destfile <- chartr("\\", "/", destfile)
+  renv:::vwritef("Retrieving '%s' ...", url)
+  print("after retrieving")
+  headers <- c(headers, renv:::renv_download_custom_headers(url))
+  print("headers")
+  print(headers)
+  print("trying renv:::renv_download_local")
+  if (renv:::renv_download_local(url, destfile, headers)) 
+    return(destfile)
+  renv:::renv_scope_downloader()
+  info <- file.info(destfile, extra_cols = FALSE)
+  if (identical(info$isdir, FALSE)) {
+    size <- renv:::renv_download_size(url, type, headers)
+    if (info$size == size) {
+      print("file is ok?")
+      renv:::vwritef("\tOK [file is up to date]")
+      return(destfile)
+    }
+  }
+  print("didn't return early")
+  callback <- renv:::renv_file_backup(destfile)
+  on.exit(renv:::callback(), add = TRUE)
+  tempfile <- renv:::renv_tempfile_path(tmpdir = dirname(destfile))
+  before <- Sys.time()
+  print("doing a different download")
+  status <- renv:::renv_download_impl(url = url, destfile = tempfile, 
+                               type = type, request = "GET", headers = headers)
+  after <- Sys.time()
+  if (inherits(status, "error")) 
+    renv:::renv_download_error(url, "%s", renv:::conditionMessage(status))
+  if (status != 0L) 
+    renv:::renv_download_error(url, "error code %i", status)
+  if (!file.exists(tempfile)) 
+    renv:::renv_download_error(url, "%s", "unknown reason")
+  status <- renv:::renv_download_check_archive(tempfile)
+  if (inherits(status, "error")) 
+    renv:::renv_download_error(url, "%s", "archive cannot be read")
+  renv:::renv_download_report(after - before, tempfile)
+  renv:::renv_file_move(tempfile, destfile)
+  print("got to the end of the download function")
+  destfile
+}
+
+renv_restore_run_actions <- function (project, actions, current, lockfile, rebuild) {
+  packages <- names(actions)
+  renv:::renv_scope_restore(project = project, library = renv:::renv_libpaths_default(), 
+                     records = renv:::renv_records(lockfile), packages = packages, 
+                     rebuild = rebuild)
+  removes <- actions[actions == "remove"]
+  renv:::enumerate(removes, function(package, action) {
+    renv:::renv_restore_remove(project, package, current)
+  })
+  installs <- actions[actions != "remove"]
+  packages <- names(installs)
+  print("before renv:::renv_retrieve")
+  records <- renv:::renv_retrieve(packages)
+  print("before renv:::renv_install")
+  status <- renv:::renv_install(records)
+  diff <- renv:::renv_lockfile_diff_packages(renv:::renv_records(lockfile), 
+                                      records)
+  diff <- diff[diff != "remove"]
+  if (!renv:::empty(diff)) {
+    renv:::renv_pretty_print_records(records[names(diff)], "The dependency tree was repaired during package installation:", 
+                              "Call `renv::snapshot()` to capture these dependencies in the lockfile.")
+  }
+  renv:::renv_install_postamble(names(records))
+  invisible(records)
+}
+
+# renv:::renv_retrieve_impl
+renv_retrieve_impl <- function (package) {
+  `%||%` <- renv:::`%||%`
+  if (package %in% renv:::renv_packages_base()) 
+    return()
+  state <- renv:::renv_restore_state()
+  if (renv:::visited(package, envir = state$retrieved)) 
+    return()
+  records <- state$records
+  record <- records[[package]] %||% renv:::renv_retrieve_missing_record(package)
+  source <- renv:::renv_record_source(record, normalize = TRUE)
+  ostype <- tolower(record[["OS_type"]] %||% "")
+  skip <- renv:::renv_platform_unix() && identical(ostype, "windows") || 
+    renv:::renv_platform_windows() && identical(ostype, "unix")
+  print(sprintf("skip is %s, source is %s", skip, source))
+  if (skip) 
+    return()
+  print("still here 0")
+  if (source %in% c("bioconductor")) 
+    renv:::renv_scope_bioconductor()
+  print("still here 1")
+  if (renv:::renv_retrieve_incompatible(record)) 
+    record <- renv:::renv_available_packages_latest(package)
+  print("still here 2")
+  uselatest <- source %in% c("repository", "bioconductor") && 
+    is.null(record$Version)
+  print("still here 3")
+  if (uselatest) 
+    record <- renv:::renv_available_packages_latest(record$Package)
+  print("still here 4")
+  if (!renv:::renv_restore_rebuild_required(record)) {
+    path <- renv:::renv_restore_find(record)
+    if (file.exists(path)) {
+      print("!renv:::renv_restore_rebuild_required(record) and path exists")
+      return(renv:::renv_retrieve_successful(record, path, install = FALSE))
+    }
+    cacheable <- renv:::renv_cache_config_enabled(project = state$project) && 
+      renv:::renv_record_cacheable(record)
+    if (cacheable) {
+      path <- renv:::renv_cache_find(record)
+      if (renv:::renv_cache_package_validate(path)) {
+        print("successful renv:::renv_cache_package_validate")
+        return(renv:::renv_retrieve_successful(record, path))
+      }
+    }
+  }
+  print("still here 5")
+  path <- record$Path %||% ""
+  if (file.exists(path)) {
+    print("path exists")
+    return(renv:::renv_retrieve_successful(record, path))
+  }
+  print("still here 6")
+  if (!renv:::renv_restore_rebuild_required(record)) {
+    shortcuts <- c(renv:::renv_retrieve_explicit, renv:::renv_retrieve_local, 
+                   if (!renv:::renv_tests_running() && renv:::config$install.shortcuts()) renv:::renv_retrieve_libpaths)
+    print("still here 7")
+    i <- 0
+    for (shortcut in shortcuts) {
+      i <- i + 1
+      print(sprintf("trying shortcut %s", i))
+      retrieved <- renv:::catch(shortcut(record))
+      if (identical(retrieved, TRUE)) {
+        print("identical(retrieved, TRUE) was TRUE")
+        return(TRUE)
+      }
+    }
+  }
+  print("entering the switch")
+  switch(
+    source,
+    bioconductor = renv:::renv_retrieve_bioconductor(record),
+    bitbucket = renv:::renv_retrieve_bitbucket(record),
+    git = renv:::renv_retrieve_git(record),
+    github = renv:::renv_retrieve_github(record),
+    gitlab = renv:::renv_retrieve_gitlab(record),
+    repository = renv:::renv_retrieve_repos(record),
+    url = renv:::renv_retrieve_url(record),
+    renv:::renv_retrieve_unknown_source(record)
+  )
+}
+
+renv_remotes_resolve_path <- function() {
+  # print("renv_remotes_resolve_path 0")
+  path <- renv:::renv_path_normalize(entry, winslash = "/", mustWork = TRUE)
+  # print("renv_remotes_resolve_path 1")
+  if (renv:::renv_archive_type(entry) %in% c("tar", "zip")) 
+    return(renv:::renv_remotes_resolve_path_impl(path))
+  # print("renv_remotes_resolve_path 2")
+  if (renv:::renv_project_type(path) == "package") 
+    return(renv:::renv_remotes_resolve_path_impl(path))
+  # print("renv_remotes_resolve_path 3")
+  renv:::stopf("there is no package at path '%s'", entry)
+  
+}
+
 installJaspModuleFromDescription <- function(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, prompt = interactive()) {
 
   print("Installing module with DESCRIPTION file")
@@ -141,9 +350,9 @@ installJaspModuleFromDescription <- function(modulePkg, libPathsToUse, moduleLib
   setupRenv(moduleLibrary)
 
   # make renv blind for other libPaths
-  old.lib.loc <- .libPaths()
-  on.exit(assign(".lib.loc", old.lib.loc, envir = environment(.libPaths)))
-  assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
+  # old.lib.loc <- .libPaths()
+  # on.exit(assign(".lib.loc", old.lib.loc, envir = environment(.libPaths)))
+  # assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
 
   # TODO: this is not very efficient because renv::install looks up the remotes on github...
   # there is a better way but it requires us to mess with renv's internals or to be more explicit about pkgs
@@ -322,7 +531,10 @@ setupRenv <- function(moduleLibrary) {
    if(getOS() == "windows" || getOS() == "osx")
     options(pkgType = "binary");
   
-  addRenvBeforeAfterDispatch()
+  if (getOS() == "osx")
+    addRenvBeforeAfterDispatch()
+  else
+    print("did not call addRenvBeforeAfterDispatch")
 }
 
 installJaspModuleFromDescriptionOld <- function(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg) {
