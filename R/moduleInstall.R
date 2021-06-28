@@ -141,9 +141,9 @@ installJaspModuleFromDescription <- function(modulePkg, libPathsToUse, moduleLib
   setupRenv(moduleLibrary)
 
   # make renv blind for other libPaths
-  old.lib.loc <- .libPaths()
-  on.exit(assign(".lib.loc", old.lib.loc, envir = environment(.libPaths)))
-  assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
+  #old.lib.loc <- .libPaths()
+  #on.exit(assign(".lib.loc", old.lib.loc, envir = environment(.libPaths)))
+  #assign(".lib.loc", moduleLibrary, envir = environment(.libPaths))
 
   # TODO: this is not very efficient because renv::install looks up the remotes on github...
   # there is a better way but it requires us to mess with renv's internals or to be more explicit about pkgs
