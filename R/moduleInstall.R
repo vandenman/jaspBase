@@ -12,7 +12,7 @@ postInstallFixes <- function(folderToFix) {
     #sometimes R.dll is not in the path on windows, despite this being called from R...
     if(getOS() == "windows")
         Sys.setenv("PATH"=paste(R.home(component='bin'), ';', old_PATH, sep="", collapse=""))
-  
+
     jaspEngineLocation <- Sys.getenv("JASPENGINE_LOCATION", unset = file.path(getwd(), "..", "JASPEngine"))
     jaspEngineCall     <- paste0(jaspEngineLocation, ' "', folderToFix ,'"')
     #print(paste0("Not *in* JASP so calling JASPEngine as: '", jaspEngineCall ,"'"))
@@ -317,6 +317,8 @@ setupRenv <- function(moduleLibrary) {
     name    = "renv_bootstrap_platform_prefix",
     package = "renv"
   )
+  # only necessary because we overwrite renv_bootstrap_platform_prefix, avoids complaints about renv misinterpreting the lockfile as a package
+  renv::settings$ignored.packages("renv.lock")
 
   cachePaths <- strsplit(Sys.getenv("RENV_PATHS_CACHE"), .Platform$path.sep)
 
@@ -338,3 +340,316 @@ setupRenv <- function(moduleLibrary) {
 
   addRenvBeforeAfterDispatch()
 }
+
+#' @export
+installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse, repos) {
+  assertValidJASPmodule(modulePkg)
+
+  r <- getOption("repos")
+  r["CRAN"] <- repos
+  options(repos = r)
+  # .libPaths(libPathsToUse)
+
+  setupRenv(moduleLibrary)
+
+  return(pkgbuild::with_build_tools({installModuleNew(modulePkg, jaspRoot, moduleLibrary)}, required = FALSE))
+
+}
+
+map <- function(x, f, ...) {
+  res <- lapply(x, f, ...)
+  names(res) <- x
+  res
+}
+
+installModuleNew <- function(
+    modulePath, jaspRoot, moduleLibrary,
+    lockfilePath   = NULL,
+    updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
+    recordPackages = c("keepLocal", "all"),
+    prompt         = FALSE#interactive()
+  ) {
+
+  # This function does four things:
+  #
+  # 1. install a JASP module from scratch using locally checked out JASP dependencies.
+  # 2. update locally checked out JASP dependencies of a JASP module
+  # 3. update other R package dependencies (optional)
+  # 4. restore a JASP package from an existing lockfile (TODO)
+
+  recordPackages <- match.arg(recordPackages)
+  moduleLibrary <- normalizePath(moduleLibrary) # simplify "Modules/../Modules/"
+
+  moduleName   <- basename(modulePath)
+  localPaths   <- getLocalPaths(jaspRoot)
+  deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"))
+  jaspPkgs     <- c(moduleName, intersect(deps$Package, names(localPaths)))
+  commitHashes <- getCommitHashes(jaspRoot)
+
+  cat("Local jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
+
+  # perhaps we want to just keep the default though
+  # if (is.null(lockfilePath)) lockfilePath <- file.path(moduleLibrary, sprintf("%s.renv.lock", moduleName))
+  if (is.null(lockfilePath)) lockfilePath <- file.path(moduleLibrary, "renv.lock")
+
+  reusingLockfile <- FALSE
+  df <- data.frame(identical = logical(length(jaspPkgs)), row.names = jaspPkgs) # only exists for pretty printing
+  if (file.exists(lockfilePath)) {
+
+    # could also use renv's implementation but jsonlite is a dependency anyway
+    lockfileData <- jsonlite::read_json(lockfilePath)
+
+    `%||%` <- rlang::`%||%`
+    df$lockfile  <- vapply(jaspPkgs, FUN.VALUE = character(1L), function(pkg) lockfileData$Packages[[pkg]]$Hash %||% "missing")
+    df$local     <- vapply(jaspPkgs, FUN.VALUE = character(1L), function(pkg) commitHashes[[pkg]] %||% "missing")
+    df$identical <- df$lockfile == df$local & df$lockfile != "missing"
+    if (any(df$identical)) # ensure the folders also exist
+      df$identical[df$identical] <- df$identical[df$identical] & dir.exists(file.path(moduleLibrary, jaspPkgs[df$identical]))
+
+    # if the module didn't change then we can reuse the lockfile, otherwise we reinstall everything from scratch
+    reusingLockfile <- df[moduleName, "identical"]
+
+    if (reusingLockfile) {
+
+      cat("Package hash in lockfile identical to local folder, reusing already existing lockfile\n")
+
+    } else {
+
+      cat("Package hash in lockfile different from local folder, reinstalling from scratch\n")
+
+      unlink(c(
+        list.dirs(moduleLibrary, full.names = TRUE, recursive = FALSE),
+        lockfilePath,
+        file.path(moduleLibrary, ".renv")
+      ))
+    }
+  }
+
+
+  oldWidth <- getOption("width")
+  options(width = 200)
+  print(df)
+  options(width = oldWidth)
+
+  identicalJaspPkgs <- df$identical
+
+  if (!all(identicalJaspPkgs)) {
+
+    cat("Updating jasp modules and installing (but not updating) new dependencies\n")
+
+    # split jasp package into a list to exclude from updates and a list to update
+    jaspPkgsToUpdate  <- jaspPkgs[!identicalJaspPkgs]
+    jaspPkgsToExclude <- jaspPkgs[ identicalJaspPkgs]
+
+    descriptionInfo <- map(jaspPkgsToUpdate, function(x) renv:::renv_description_read(localPaths[x]))
+
+    records <- map(jaspPkgsToUpdate, function(pkg) {
+      list(
+        Package    = descriptionInfo[[pkg]]$Package,
+        Version    = descriptionInfo[[pkg]]$Version,
+        Source     = "Local",
+        RemoteType = "local",
+        RemoteUrl  = localPaths[[pkg]],
+        Cacheable  = TRUE,
+        Hash       = commitHashes[[pkg]]
+      )
+    })
+
+    options(renv.snapshot.filter = function(x) jaspPkgs)
+    if (!reusingLockfile)
+      renv::snapshot(lockfile = lockfilePath, type = "custom", prompt = prompt, force = !interactive())
+
+    renv::record(records = records, lockfile = lockfilePath)
+
+    options("renv.cache.linkable"      = TRUE)
+    options("JASP_LOCAL_PATHS"         = localPaths)
+    options("JASP_LOCAL_COMMIT_HASHES" = commitHashes)
+
+    # ensures that JASP packages are cached
+    renv_remotes_resolve_path_impl_override <- function(path) {
+      desc <- renv:::renv_description_read(path)
+
+      # start of changes
+      Cacheable <- !isFALSE(getOption("JASP_LOCAL_PATHS", FALSE)) && basename(path) %in% names(getOption("JASP_LOCAL_PATHS"))
+      list(Package = desc$Package, Version = desc$Version, Source = "Local",
+           RemoteType = "local", RemoteUrl = path, Cacheable = TRUE)
+      # end of changes
+    }
+    assignFunctionInPackage(renv_remotes_resolve_path_impl_override, "renv_remotes_resolve_path_impl", "renv")
+
+    # ensures the hash for JASP packages is the commit hash and not based on the DESRIPTION file
+    renv_snapshot_description_override <- function(path = NULL, package = NULL) {
+      `%||%` <- renv:::`%||%`
+      path <- path %||% renv:::renv_package_find(package)
+
+      dcf <- renv:::catch(renv:::renv_description_read(path, package))
+      if (inherits(dcf, "error"))
+        return(dcf)
+
+      source <- renv:::renv_snapshot_description_source(dcf)
+      dcf[names(source)] <- source
+      required <- c("Package", "Version", "Source")
+      missing <- renv:::renv_vector_diff(required, names(dcf))
+      if (length(missing)) {
+        fmt <- "required fields %s missing from DESCRIPTION at path '%s'"
+        msg <- sprintf(fmt, paste(shQuote(missing), collapse = ", "), path)
+        return(simpleError(msg))
+      }
+      # start of changes
+      if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && dcf$Package %in% names(options("JASP_LOCAL_COMMIT_HASHES"))) {
+        dcf[["Hash"]] <- commitHashes[[dcf$Package]]
+      } else {
+        dcf[["Hash"]] <- renv:::renv_hash_description(path)
+      }
+      # end of changes
+
+      fields <- c("Depends", "Imports", "LinkingTo")
+      for (field in fields) {
+        if (!is.null(dcf[[field]])) {
+          parts <- strsplit(dcf[[field]], "\\s*,\\s*", perl = TRUE)[[1L]]
+          parts <- gsub("\\s+", " ", parts, perl = TRUE)
+          dcf[[field]] <- parts[nzchar(parts)]
+        }
+      }
+      git <- grep("^git", names(dcf), value = TRUE)
+      remotes <- grep("^Remote", names(dcf), value = TRUE)
+      extra <- c("Repository", "OS_type")
+      all <- c(required, fields, extra, remotes, git, "Hash")
+      keep <- renv:::renv_vector_intersect(all, names(dcf))
+      as.list(dcf[keep])
+    }
+    assignFunctionInPackage(renv_snapshot_description_override, "renv_snapshot_description", "renv")
+
+    # unclear if this is necessary
+    .libPaths(moduleLibrary)
+
+    cat("restoring library\n")
+    renv::restore(library = .libPaths(), lockfile = lockfilePath, project = moduleLibrary,
+                  exclude = c(basename(lockfilePath), jaspPkgsToExclude), prompt = prompt)
+
+  }
+
+  if (parseUpdatePkgs(jaspRoot, updatePackages)) {
+
+    cat("updating R package dependencies\n")
+    renv::update(library = .libPaths(), exclude = jaspPkgs, project = moduleLibrary)
+
+  } else {
+
+    cat("not updating R package dependencies\n")
+
+  }
+
+  if (recordPackages == "all") {
+    # reproducible outside of people's local system
+    renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
+  } else if (!reusingLockfile) {
+    # not reproducible outside of people's local system
+
+    # it'd be great if renv::snapshot would just feature an exclude option
+    # that would not delete the pkgs from the lockfile but leave them as they are.
+
+    # first save the original records for the jasp packages
+    oldRecords <- jsonlite::read_json(lockfilePath)$Packages[jaspPkgs]
+    # snapshot the current state of the library, this overwrites the jasp records
+    renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
+    # re-record the jasp pkgs since renv has now overwritten them
+    renv::record(records = oldRecords, lockfile = lockfilePath)
+
+  }
+}
+
+getCommitHashes <- function(jaspRoot) {
+
+  jaspRoot <- normalizePath(jaspRoot)
+  hashes <- character()
+
+  hashes["jaspBase"]   <- getCommitHash(file.path(jaspRoot, "Engine", "jaspBase"))
+  hashes["jaspGraphs"] <- getCommitHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
+
+  modulePaths <- getModulesPaths(jaspRoot)
+  moduleNames <- basename(modulePaths)
+
+  for (path in modulePaths)
+    hashes[basename(path)] <- getCommitHash(path)
+
+  hashes
+}
+
+getModulesPaths <- function(jaspRoot) {
+  candidates <- dir(file.path(jaspRoot, "Modules"), full.names = TRUE)
+  Filter(function(path) file.exists(file.path(path, "DESCRIPTION")) && file.exists(file.path(path, "inst", "Description.qml")), candidates)
+}
+
+getLocalPaths <- function(jaspRoot) {
+
+  # for dynamic modules
+  if (isFALSE(jaspRoot) || !dir.exists(jaspRoot)) {
+    if (!dir.exists(jaspRoot))
+      warning("getLocalPaths got path \"", jaspRoot, "\" but it does not exist!", domain = NA)
+    return(FALSE)
+  }
+
+  jaspRoot <- normalizePath(jaspRoot)
+  paths <- character()
+  paths["jaspBase"]   <- file.path(jaspRoot, "Engine", "jaspBase")
+  paths["jaspGraphs"] <- file.path(jaspRoot, "Engine", "jaspGraphs")
+
+  modulePaths <- getModulesPaths(jaspRoot)
+  paths[basename(modulePaths)] <- modulePaths
+  paths
+
+}
+
+getCommitHash <- function(path) {
+  return(createMd5Sums(path, individual = FALSE, includeQML = TRUE))
+  # system(sprintf("cd %s && git rev-parse HEAD", path), intern = TRUE)
+}
+
+parseUpdatePkgs <- function(jaspRoot, updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false")) {
+
+  # possible logical values for updatePackages are:
+  # TRUE/ FALSE
+  # possible case insensitive character values are:
+  # "true", "false", "daily", "triweekly", "biweekly", "weekly", "fortnightly", "monthly",
+  # "monday", "tuesday", ... "sunday", or a combination of weekdays, "monday;wednesday;friday"
+
+  if (is.logical(updatePackages))
+    return(isTRUE(updatePackages))
+  if (!is.character(updatePackages)) {
+    warning("updatePackages or JASP_UPDATE_PKGS was set to something other than a string or boolean, and is thus ignored.", domain = NA)
+    return(FALSE)
+  }
+
+  updatePackages <- tolower(updatePackages)
+  if (updatePackages == "false")
+    return(FALSE)
+  else if (updatePackages == "true")
+    return(TRUE)
+
+  oldValue <- Sys.getlocale(category = "LC_TIME")
+  Sys.setlocale(category = "LC_TIME", locale = "en_US.UTF-8")
+  on.exit(Sys.setlocale(category = "LC_TIME", locale = oldValue), add = TRUE)
+
+  oldDate <- Sys.Date() - 1L # TODO: read this in from some file
+  diffInDays <- Sys.Date() - oldDate
+
+  switch(updatePackages,
+    "daily"       = return(diffInDays >= 1L),
+    "triweekly"   = return(diffInDays >= 2L),
+    "biweekly"    = return(diffInDays >= 4L),
+    "weekly"      = return(diffInDays >= 7L),
+    "fortnightly" = return(diffInDays >= 14L),
+    "monthly"     = return(diffInDays >= 30L) # nobody's gonna notice this isn't always a month
+  )
+
+  currentDay <- tolower(weekdays(Sys.Date()))
+  splitUpdatePackages <- strsplit(updatePackages, ";", fixed = TRUE)[[1L]]
+  if (currentDay %in% splitUpdatePackages)
+    return(diffInDays >= 1L)
+
+  warning("updatePackages or JASP_UPDATE_PKGS was set to \"", updatePackages, "\" but this value was not understood and thus ignored.", domain = NA)
+  return(FALSE)
+
+}
+
