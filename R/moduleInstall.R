@@ -362,29 +362,75 @@ map <- function(x, f, ...) {
   res
 }
 
+
+#' Install a Jasp module and update its dependencies.
+#'
+#' @param modulePath local path to jasp module, e.g., ~/github/jasp-desktop/Modules/jaspDescriptives (note that this does not need to be inside jasp-desktop)
+#' @param jaspRoot local path to clone of jasp-desktop, e.g., ~/github/jasp-desktop
+#' @param moduleLibrary where to install the module
+#' @param lockfilePath optional, path to a lockfile.
+#' @param updatePackages optional, whether to update the non JASP R package dependencies. Defaults to false, but see Details.
+#' @param recordPackages optional, whether to record all package dependencies as they are installed ("all"), or whether to change records of Jasp modules to the locally checked out version ("localJasp").
+#' @param recurseJaspDependencies optional, whether to use the local versions of indirect Jasp module dependencies. Defaults to TRUE.
+#' @param useLocalLockfile optional, whether to use the lockfile present in modulePath. Defaults to false.
+#' @param prompt optional, show renv promts. Ignored when not running in interactive mode (e.g., inside Jasp).
+#'
+#' @details \code{installModuleNew} does four things:
+#' 1. Install a Jasp module from scratch using locally checked out jasp modules. When `recurseJaspDependencies` is TRUE (the default), then it is ensured that any indirect dependencies on other jasp modules als use the locally checked out versions.
+#' 2. Update the Jasp module dependencies when locally checked out sources change. For example, when jaspBase is updated but jaspDescriptives not, this function ensures that jaspDescriptives will use the new version of jaspBase.
+#' 3. Optionally, update non Jasp R package dependencies.
+#' 4. TODO: Optionally, install a Jasp module using the lockfile specified in the source location. This ignores any options set for the previous three options.
+#'
+#' Possible values for \code{updatePackages} are "true", "false", "daily", "triweekly", "biweekly", "weekly", "fortnightly", "monthly",
+#' "monday", "tuesday", ... "sunday", or a combination of weekdays, "monday;wednesday;friday".
+#' Anything value that is not understood is interpreted as FALSE (with a warning).
+#' The date of the previous update is determined by looking at the last date where \code{lockfilePath} was modified.
+#'
+#' @rdname installModuleNew
+#'
+#' @return returns \code{NULL}.
+#'
 installModuleNew <- function(
     modulePath, jaspRoot, moduleLibrary,
-    lockfilePath   = NULL,
-    updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
-    recordPackages = c("keepLocal", "all"),
-    prompt         = FALSE#interactive()
+    lockfilePath            = NULL,
+    updatePackages          = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
+    recordPackages          = c("localJasp", "all"),
+    recurseJaspDependencies = TRUE,
+    useLocalLockfile        = FALSE,
+    prompt                  = FALSE
   ) {
-
-  # This function does four things:
-  #
-  # 1. install a JASP module from scratch using locally checked out JASP dependencies.
-  # 2. update locally checked out JASP dependencies of a JASP module
-  # 3. update other R package dependencies (optional)
-  # 4. restore a JASP package from an existing lockfile (TODO)
 
   recordPackages <- match.arg(recordPackages)
   moduleLibrary <- normalizePath(moduleLibrary) # simplify "Modules/../Modules/"
 
   moduleName   <- basename(modulePath)
   localPaths   <- getLocalPaths(jaspRoot)
-  deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"))
+  deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"), progress = FALSE)
   jaspPkgs     <- c(moduleName, intersect(deps$Package, names(localPaths)))
   commitHashes <- getCommitHashes(jaspRoot)
+
+  if (recurseJaspDependencies) {
+    seen <- moduleName
+    for (i in 1:30) {
+
+      pkgsToGetDescriptionFrom <- localPaths[names(localPaths) %in% setdiff(jaspPkgs, seen)]
+
+      newJaspPkgs <- Reduce(union, sapply(pkgsToGetDescriptionFrom, function(pkg) {
+        intersect(renv::dependencies(file.path(pkg, "DESCRIPTION"), progress = FALSE)$Package, names(localPaths))
+      }))
+      newJaspPkgs <- setdiff(newJaspPkgs, c(jaspPkgs, seen))
+      if (length(newJaspPkgs) == 0L)
+        break
+
+      seen <- c(jaspPkgs, seen)
+      jaspPkgs <- c(jaspPkgs, newJaspPkgs)
+
+    }
+
+    if (i  == 30)
+      warning("Failed to recursively resolve all jasp dependencies after 30 iterations!")
+
+  }
 
   cat("Local jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
 
@@ -606,13 +652,7 @@ getCommitHash <- function(path) {
   # system(sprintf("cd %s && git rev-parse HEAD", path), intern = TRUE)
 }
 
-parseUpdatePkgs <- function(jaspRoot, updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false")) {
-
-  # possible logical values for updatePackages are:
-  # TRUE/ FALSE
-  # possible case insensitive character values are:
-  # "true", "false", "daily", "triweekly", "biweekly", "weekly", "fortnightly", "monthly",
-  # "monday", "tuesday", ... "sunday", or a combination of weekdays, "monday;wednesday;friday"
+parseUpdatePkgs <- function(lockfilePath, updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false")) {
 
   if (is.logical(updatePackages))
     return(isTRUE(updatePackages))
@@ -627,12 +667,14 @@ parseUpdatePkgs <- function(jaspRoot, updatePackages = Sys.getenv("JASP_UPDATE_P
   else if (updatePackages == "true")
     return(TRUE)
 
+  # so that R always returns the same date information. This mainly matters for weekdays(), which otherwise returns the translated day
   oldValue <- Sys.getlocale(category = "LC_TIME")
   Sys.setlocale(category = "LC_TIME", locale = "en_US.UTF-8")
   on.exit(Sys.setlocale(category = "LC_TIME", locale = oldValue), add = TRUE)
 
-  oldDate <- Sys.Date() - 1L # TODO: read this in from some file
-  diffInDays <- Sys.Date() - oldDate
+  oldDate <- as.Date(file.mtime(lockfilePath))
+  now <- Sys.Date()
+  diffInDays <- (now - oldDate)
 
   switch(updatePackages,
     "daily"       = return(diffInDays >= 1L),
@@ -640,10 +682,10 @@ parseUpdatePkgs <- function(jaspRoot, updatePackages = Sys.getenv("JASP_UPDATE_P
     "biweekly"    = return(diffInDays >= 4L),
     "weekly"      = return(diffInDays >= 7L),
     "fortnightly" = return(diffInDays >= 14L),
-    "monthly"     = return(diffInDays >= 30L) # nobody's gonna notice this isn't always a month
+    "monthly"     = return(dateToMonth(now) - dateToMonth(oldDate) >= 1L)
   )
 
-  currentDay <- tolower(weekdays(Sys.Date()))
+  currentDay <- tolower(weekdays(now))
   splitUpdatePackages <- strsplit(updatePackages, ";", fixed = TRUE)[[1L]]
   if (currentDay %in% splitUpdatePackages)
     return(diffInDays >= 1L)
@@ -651,5 +693,9 @@ parseUpdatePkgs <- function(jaspRoot, updatePackages = Sys.getenv("JASP_UPDATE_P
   warning("updatePackages or JASP_UPDATE_PKGS was set to \"", updatePackages, "\" but this value was not understood and thus ignored.", domain = NA)
   return(FALSE)
 
+}
+
+dateToMonth <- function(x) {
+  as.numeric(format(x, format="%m"))
 }
 
