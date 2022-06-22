@@ -342,7 +342,7 @@ setupRenv <- function(moduleLibrary) {
 }
 
 #' @export
-installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse, repos) {
+installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse, repos, recordPackages = "localJasp") {
   assertValidJASPmodule(modulePkg)
 
   r <- getOption("repos")
@@ -352,7 +352,7 @@ installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToU
 
   setupRenv(moduleLibrary)
 
-  return(pkgbuild::with_build_tools({installModuleNew(modulePkg, jaspRoot, moduleLibrary)}, required = FALSE))
+  return(pkgbuild::with_build_tools({installModuleNew(modulePkg, jaspRoot, moduleLibrary, recordPackages = recordPackages)}, required = FALSE))
 
 }
 
