@@ -546,7 +546,8 @@ installModuleNew <- function(
         return(simpleError(msg))
       }
       # start of changes
-      if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && dcf$Package %in% names(options("JASP_LOCAL_COMMIT_HASHES"))) {
+      if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && dcf$Package %in% names(getOption("JASP_LOCAL_COMMIT_HASHES"))) {
+        cat(sprintf("renv_snapshot_description: Package: %shash: %s\n", format(dcf$Package, width = 20), commitHashes[[dcf$Package]]))
         dcf[["Hash"]] <- commitHashes[[dcf$Package]]
       } else {
         dcf[["Hash"]] <- renv:::renv_hash_description(path)
@@ -568,7 +569,25 @@ installModuleNew <- function(
       keep <- renv:::renv_vector_intersect(all, names(dcf))
       as.list(dcf[keep])
     }
+
+    renv_retrieve_explicit_override <- function(record) {
+      `%||%` <- renv:::`%||%`
+      source <- record$Path %||% record$RemoteUrl %||% ""
+      resolved <- renv:::catch(renv:::renv_remotes_resolve_path(source))
+      if (inherits(resolved, "error"))
+        return(FALSE)
+      normalized <- renv:::renv_path_normalize(source, winslash = "/", mustWork = TRUE)
+      resolved$Source <- "Local"
+      # start of changes
+      if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && record$Package %in% names(getOption("JASP_LOCAL_COMMIT_HASHES"))) {
+        cat(sprintf("renv_retrieve_explicit: Package: %shash: %s\n", format(record$Package, width = 20), commitHashes[[record$Package]]))
+        record$Hash <- commitHashes[[record$Package$Package]]
+      }
+      # end of changes
+      renv:::renv_retrieve_successful(resolved, normalized)
+    }
     assignFunctionInPackage(renv_snapshot_description_override, "renv_snapshot_description", "renv")
+    assignFunctionInPackage(renv_retrieve_explicit_override,    "renv_retrieve_explicit",    "renv")
 
     # unclear if this is necessary
     .libPaths(moduleLibrary)
