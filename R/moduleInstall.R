@@ -328,9 +328,9 @@ setupRenv <- function(moduleLibrary) {
   
   Sys.setenv("RENV_PATHS_LIBRARY" = moduleLibrary)
 
-  print("Using the following paths:")
+  cat("Using the following paths:\n")
   for(name in names(renv::paths))
-    print(sprintf("%s:%s%s", name, paste0(rep(" ", 12 - nchar(name)), collapse=""), renv::paths[[name]]()))
+    cat(sprintf("%s:%s%s\n", name, strrep(" ", 12 - nchar(name)), renv::paths[[name]]()))
 
   options(install.opts = "--no-docs --no-test-load"); #make sure we do not do a test-load, because this will not work on mac. the rpaths still need to be fixed
 
@@ -411,7 +411,7 @@ installModuleNew <- function(
   localPaths   <- getLocalPaths(jaspRoot)
   deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"), progress = FALSE)
   jaspPkgs     <- c(moduleName, intersect(deps$Package, names(localPaths)))
-  commitHashes <- getCommitHashes(jaspRoot)
+  commitHashes <- getModuleHashes(jaspRoot)
 
   if (recurseJaspDependencies) {
     seen <- moduleName
@@ -609,19 +609,19 @@ installModuleNew <- function(
   }
 }
 
-getCommitHashes <- function(jaspRoot) {
+getModuleHashes <- function(jaspRoot) {
 
   jaspRoot <- normalizePath(jaspRoot)
   hashes <- character()
 
-  hashes["jaspBase"]   <- getCommitHash(file.path(jaspRoot, "Engine", "jaspBase"))
-  hashes["jaspGraphs"] <- getCommitHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
+  hashes["jaspBase"]   <- getModuleHash(file.path(jaspRoot, "Engine", "jaspBase"))
+  hashes["jaspGraphs"] <- getModuleHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
 
   modulePaths <- getModulesPaths(jaspRoot)
   moduleNames <- basename(modulePaths)
 
   for (path in modulePaths)
-    hashes[basename(path)] <- getCommitHash(path)
+    hashes[basename(path)] <- getModuleHash(path)
 
   hashes
 }
@@ -651,7 +651,7 @@ getLocalPaths <- function(jaspRoot) {
 
 }
 
-getCommitHash <- function(path) {
+getModuleHash <- function(path) {
   return(createMd5Sums(path, individual = FALSE, includeQML = TRUE))
   # system(sprintf("cd %s && git rev-parse HEAD", path), intern = TRUE)
 }

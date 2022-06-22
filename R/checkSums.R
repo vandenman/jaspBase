@@ -1,17 +1,17 @@
 createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
 
   srcFiles <- c(
-    list.files(modulePkg,                         recursive=TRUE, full.names = TRUE, pattern = "(NAMESPACE|DESCRIPTION)$"),
-    list.files(file.path(modulePkg, "src"),       recursive=TRUE, full.names = TRUE, pattern = "(\\.(cpp|c|hpp|h)|(Makevars|Makevars\\.win))$"),
-    list.files(file.path(modulePkg, "R"),         recursive=TRUE, full.names = TRUE, pattern = "\\.R$"),
-    list.files(modulePkg,                         recursive=TRUE, full.names = TRUE, pattern = "renv\\.lock")
+    list.files(modulePkg,                       recursive = FALSE, full.names = TRUE, pattern = "(NAMESPACE|DESCRIPTION)$"),
+    list.files(file.path(modulePkg, "src"),     recursive = FALSE, full.names = TRUE, pattern = "(\\.(cpp|c|hpp|h)|(Makevars|Makevars\\.win))$"),
+    list.files(file.path(modulePkg, "R"),       recursive = FALSE, full.names = TRUE, pattern = "\\.R$"),
+    list.files(modulePkg,                       recursive = FALSE, full.names = TRUE, pattern = "renv\\.lock")
   )
 
   if (includeQML)
     scrFiles <- c(
       srcFiles,
-      list.files(file.path(modulePkg, "inst"),      recursive=TRUE, full.names = TRUE, pattern = "\\.(qml|po|svg|png|jpg|md)$"),
-      list.files(file.path(modulePkg, "inst"),      recursive=TRUE, full.names = TRUE, pattern = "\\qmldir$")
+      list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\.(qml|po|svg|png|jpg|md)$"),
+      list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\qmldir$")
     )
 
   newMd5Sums <- tools::md5sum(srcFiles)
