@@ -343,7 +343,7 @@ setupRenv <- function(moduleLibrary) {
 
 #' @export
 installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse, repos, updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
-                                 recordPackages = "localJasp") {
+                                 recordPackages = "localJasp", respectModuleLockfile = TRUE) {
   assertValidJASPmodule(modulePkg)
 
   r <- getOption("repos")
@@ -354,7 +354,8 @@ installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToU
   setupRenv(moduleLibrary)
 
   return(pkgbuild::with_build_tools(
-    installModuleNew(modulePkg, jaspRoot, moduleLibrary, updatePackages = updatePackages, recordPackages = recordPackages),
+    installModuleNew(modulePkg, jaspRoot, moduleLibrary, updatePackages = updatePackages, recordPackages = recordPackages,
+                     respectModuleLockfile = respectModuleLockfile),
     required = FALSE
   ))
 
@@ -401,11 +402,16 @@ installModuleNew <- function(
     recordPackages          = c("localJasp", "all"),
     recurseJaspDependencies = TRUE,
     useLocalLockfile        = FALSE,
+    respectModuleLockfile   = TRUE,
     prompt                  = FALSE
   ) {
 
   recordPackages <- match.arg(recordPackages)
   moduleLibrary <- normalizePath(moduleLibrary) # simplify "Modules/../Modules/"
+
+  if (file.exists(modulePath, "renv.lock") && respectModuleLockfile) {
+    return(installModuleNewFromModuleLockfile(modulePath, moduleLibrary))
+  }
 
   moduleName   <- basename(modulePath)
   localPaths   <- getLocalPaths(jaspRoot)
@@ -436,7 +442,7 @@ installModuleNew <- function(
 
   }
 
-  cat("Local jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
+  cat("\nLocal jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
 
   # perhaps we want to just keep the default though
   # if (is.null(lockfilePath)) lockfilePath <- file.path(moduleLibrary, sprintf("%s.renv.lock", moduleName))
@@ -478,6 +484,7 @@ installModuleNew <- function(
 
   oldWidth <- getOption("width")
   options(width = 200)
+  cat("\n")
   print(df)
   options(width = oldWidth)
 
@@ -626,6 +633,8 @@ installModuleNew <- function(
     renv::record(records = oldRecords, lockfile = lockfilePath)
 
   }
+
+  return("success")
 }
 
 getModuleHashes <- function(jaspRoot) {
@@ -722,3 +731,11 @@ dateToMonth <- function(x) {
   as.numeric(format(x, format="%m"))
 }
 
+installModuleNewFromModuleLockfile <- function(modulePath, moduleLibrary, prompt = FALSE) {
+
+  renv::restore(library = moduleLibrary, lockfile = file.path(moduleLibrary, "renv.lock"),
+                project = moduleLibrary, prompt = prompt)
+
+  return("success")
+
+}
