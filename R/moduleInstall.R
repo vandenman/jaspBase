@@ -542,7 +542,8 @@ installModuleNew <- function(
     cat("restoring library\n")
     # unclear if setting .libPaths is necessary
     .libPaths(moduleLibrary)
-    renv::restore(library = .libPaths(), lockfile = lockfilePath, project = moduleLibrary, prompt = prompt)
+    renv::restore(library = moduleLibrary, lockfile = lockfilePath, project = moduleLibrary,
+                  clean = TRUE, prompt = prompt)
 
     # if (recordPackages == "all") {
     #   # reset original records
