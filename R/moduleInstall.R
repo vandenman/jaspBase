@@ -320,7 +320,7 @@ setupRenv <- function(moduleLibrary) {
   # only necessary because we overwrite renv_bootstrap_platform_prefix, avoids complaints about renv misinterpreting the lockfile as a package
   renv::settings$ignored.packages("renv.lock")
 
-  cachePaths <- strsplit(Sys.getenv("RENV_PATHS_CACHE"), .Platform$path.sep)
+  cachePaths <- strsplit(Sys.getenv("RENV_PATHS_CACHE"), .Platform$path.sep)[[1L]]
 
   for(cachePath in cachePaths[[1]]) #strsplit is vectorized but we only give it a single string, so index to that single first one
     if (!dir.exists(cachePath))
