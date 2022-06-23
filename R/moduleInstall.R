@@ -504,7 +504,7 @@ installModuleNew <- function(
     hackRenv()
 
     tempLockfilePath <- tempfile(fileext = "renv.lock")
-    records <- renv::snapshot(project = modulePath, lockfile = tempLockfilePath, prompt = prompt)
+    records <- renv::snapshot(project = modulePath, lockfile = tempLockfilePath, type = "explicit", prompt = prompt)
 
     hasExistingLockfile <- file.exists(lockfilePath)
     if (hasExistingLockfile) {
