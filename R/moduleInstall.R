@@ -409,7 +409,7 @@ installModuleNew <- function(
   recordPackages <- match.arg(recordPackages)
   moduleLibrary <- normalizePath(moduleLibrary) # simplify "Modules/../Modules/"
 
-  if (file.exists(modulePath, "renv.lock") && respectModuleLockfile) {
+  if (file.exists(file.path(modulePath, "renv.lock")) && respectModuleLockfile) {
     return(installModuleNewFromModuleLockfile(modulePath, moduleLibrary))
   }
 
