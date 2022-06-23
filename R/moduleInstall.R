@@ -342,14 +342,17 @@ setupRenv <- function(moduleLibrary) {
 }
 
 #' @export
-installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse, repos, updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
+installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, libPathsToUse = .libPaths(), repos = getOption("repos"), updatePackages = Sys.getenv("JASP_UPDATE_PKGS", unset = "false"),
                                  recordPackages = "localJasp", respectModuleLockfile = TRUE) {
   assertValidJASPmodule(modulePkg)
 
   r <- getOption("repos")
   r["CRAN"] <- repos
   options(repos = r)
-  # .libPaths(libPathsToUse)
+
+  oldLibPaths <- .libPaths()
+  .libPaths(c(libPathsToUse, .libPaths()))
+  on.exit(.libPaths(oldLibPaths))
 
   setupRenv(moduleLibrary)
 
