@@ -489,9 +489,13 @@ installModuleNew <- function(
 
   identicalJaspPkgs <- df$identical
 
-  if (!all(identicalJaspPkgs)) {
+  if (!all(identicalJaspPkgs)) {# || recordPackages == "all") {
 
-    cat("Updating and installing jasp modules and new R package dependencies but not (yet) updating older dependencies\n")
+    # if (!all(identicalJaspPkgs)) {
+      cat("Updating and installing jasp modules and new R package dependencies but not (yet) updating older dependencies\n")
+    # } else {
+      # cat("Recording all jasp packages, so updating and installing jasp modules and new R package dependencies but not (yet) updating older dependencies\n")
+    # }
 
     options("renv.cache.linkable"      = TRUE)
     options("JASP_LOCAL_PATHS"         = localPaths)
@@ -506,19 +510,15 @@ installModuleNew <- function(
     if (hasExistingLockfile) {
       currentLockfile <- renv:::renv_lockfile_read(file = lockfilePath)
       pkgs2skip <- setdiff(names(currentLockfile$Packages), jaspPkgs)
+      pkgs2skip <- intersect(names(records$Packages), pkgs2skip)
       records$Packages[pkgs2skip] <- currentLockfile$Packages[pkgs2skip]
     } else {
       file.copy(from = tempLockfilePath, to = lockfilePath)
     }
 
-    # split jasp package into a list to exclude from updates and a list to update
-    jaspPkgsToUpdate  <- jaspPkgs[!identicalJaspPkgs]
-    # jaspPkgsToExclude <- jaspPkgs[ identicalJaspPkgs]
-
-    # moduleName
-    descriptionInfo <- map(jaspPkgsToUpdate, function(x) renv:::renv_description_read(localPaths[x]))
-
-    jaspRecords <- map(jaspPkgsToUpdate, function(pkg) {
+    # construct custom entries for lockfile
+    descriptionInfo <- map(jaspPkgs, function(x) renv:::renv_description_read(localPaths[x]))
+    jaspRecords <- map(jaspPkgs, function(pkg) {
       list(
         Package      = descriptionInfo[[pkg]]$Package,
         Version      = descriptionInfo[[pkg]]$Version,
@@ -531,27 +531,23 @@ installModuleNew <- function(
       )
     })
 
-
-    # options(renv.snapshot.filter = function(x) jaspPkgs)
-    # if (!reusingLockfile)
-    #   renv::snapshot(lockfile = lockfilePath, type = "custom", prompt = prompt, force = !interactive())
-
-#     renv::record(records = records, lockfile = lockfilePath)
-
-
-    # unclear if this is necessary
-    .libPaths(moduleLibrary)
-
-    if (hasExistingLockfile) {
-      records$Packages[names(jaspRecords)] <- jaspRecords
-      renv::record(records = records,     lockfile = lockfilePath)
-    } else {
-      renv::record(records = jaspRecords, lockfile = lockfilePath)
-    }
+    recordsOriginal <- records
+    records$Packages[names(jaspRecords)] <- jaspRecords
+    renv::record(records = records$Packages,     lockfile = lockfilePath)
+    # }# else {
+    #  renv::record(records = jaspRecords, lockfile = lockfilePath)
+    #}
     # renv::snapshot(lockfile = lockfilePath, prompt = prompt, force = !interactive())
 
     cat("restoring library\n")
+    # unclear if setting .libPaths is necessary
+    .libPaths(moduleLibrary)
     renv::restore(library = .libPaths(), lockfile = lockfilePath, project = moduleLibrary, prompt = prompt)
+
+    # if (recordPackages == "all") {
+    #   # reset original records
+    #   renv::record(records = recordsOriginal$Packages,     lockfile = lockfilePath)
+    # }
     # renv::restore(library = .libPaths(), lockfile = lockfilePath, project = moduleLibrary,
     #               exclude = c(basename(lockfilePath), jaspPkgsToExclude), prompt = prompt)
 #
@@ -574,20 +570,21 @@ installModuleNew <- function(
   if (recordPackages == "all") {
     # reproducible outside of people's local system
     renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
-  } else if (!reusingLockfile) {
-    # not reproducible outside of people's local system
-
-    # it'd be great if renv::snapshot would just feature an exclude option
-    # that would not delete the pkgs from the lockfile but leave them as they are.
-
-    # first save the original records for the jasp packages
-    oldRecords <- jsonlite::read_json(lockfilePath)$Packages[jaspPkgs]
-    # snapshot the current state of the library, this overwrites the jasp records
-    renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
-    # re-record the jasp pkgs since renv has now overwritten them
-    renv::record(records = oldRecords, lockfile = lockfilePath)
-
   }
+  # else if (!reusingLockfile) {
+  #   # not reproducible outside of people's local system
+  #
+  #   # it'd be great if renv::snapshot would just feature an exclude option
+  #   # that would not delete the pkgs from the lockfile but leave them as they are.
+  #
+  #   # first save the original records for the jasp packages
+  #   oldRecords <- jsonlite::read_json(lockfilePath)$Packages[jaspPkgs]
+  #   # snapshot the current state of the library, this overwrites the jasp records
+  #   renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
+  #   # re-record the jasp pkgs since renv has now overwritten them
+  #   renv::record(records = oldRecords, lockfile = lockfilePath)
+  #
+  # }
 
   return("success")
 }
