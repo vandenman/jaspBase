@@ -16,5 +16,5 @@
 #
 
 foo <- function() {
-  print("Hello World!")
+  cat(crayon::blue("Hello World!\n"))
 }

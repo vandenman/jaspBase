@@ -1,3 +1,4 @@
+
 postInstallFixes <- function(folderToFix) {
   if(length(ls(all.names=TRUE,pattern="\\.postProcessLibraryModule")) > 0 ) #We seem to be running in JASP (but this won't be used because renv starts a separate R process)
   {
@@ -418,35 +419,20 @@ installModuleNew <- function(
   localPaths   <- getLocalPaths(jaspRoot)
   deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"), progress = FALSE)
   jaspPkgs     <- c(moduleName, intersect(deps$Package, names(localPaths)))
-  commitHashes <- getModuleHashes(jaspRoot)
+  commitHashes <- getModuleHashes(localPaths)
 
-  # unclear if setting .libPaths is necessary
+  # Could be useful to manually add github records
+  # commitSHas   <- getModuleShas(localPaths)
+
+  # unclear if setting .libPaths is necessary (probably necessary, otherwise spurious packages are recorded!)
   oldLibPaths <- .libPaths()
   .libPaths(moduleLibrary)
-  on.exit(.libPaths(oldLibPaths))
+  on.exit(.libPaths(oldLibPaths), add = TRUE, after = FALSE)
 
-  if (recurseJaspDependencies) {
-    seen <- moduleName
-    for (i in 1:30) {
+  if (recurseJaspDependencies)
+    jaspPkgs <- findRecursiveJaspDependencies(moduleName, localPaths, jaspPkgs)
 
-      pkgsToGetDescriptionFrom <- localPaths[names(localPaths) %in% setdiff(jaspPkgs, seen)]
-
-      newJaspPkgs <- Reduce(union, sapply(pkgsToGetDescriptionFrom, function(pkg) {
-        intersect(renv::dependencies(file.path(pkg, "DESCRIPTION"), progress = FALSE)$Package, names(localPaths))
-      }))
-      newJaspPkgs <- setdiff(newJaspPkgs, c(jaspPkgs, seen))
-      if (length(newJaspPkgs) == 0L)
-        break
-
-      seen <- c(jaspPkgs, seen)
-      jaspPkgs <- c(jaspPkgs, newJaspPkgs)
-
-    }
-
-    if (i  == 30)
-      warning("Failed to recursively resolve all jasp dependencies after 30 iterations!")
-
-  }
+  # TODO: filter localPaths using jaspPkgs and then only compute hashes/ shas for those
 
   cat("\nLocal jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
 
@@ -479,10 +465,10 @@ installModuleNew <- function(
 
       cat("Package hash in lockfile different from local folder, reinstalling from scratch\n")
 
-      unlink(c(
+      file.remove(c(
         list.dirs(moduleLibrary, full.names = TRUE, recursive = FALSE),
-        lockfilePath,
-        file.path(moduleLibrary, ".renv")
+        if (file.exists(lockfilePath)) lockfilePath,
+        if (file.exists(file.path(moduleLibrary, ".renv"))) file.path(moduleLibrary, ".renv")
       ))
     }
   }
@@ -511,11 +497,8 @@ installModuleNew <- function(
     hackRenv()
 
     tempLockfilePath <- tempfile(fileext = "renv.lock")
-    browser()
-    # TODO: something doesn't work here!
-    deps <- renv::dependencies(file.path(modulePath, "DESCRIPTION"))
-    records <- renv::snapshot(project = modulePath, library = moduleLibrary, lockfile = tempLockfilePath, type = "explicit", prompt = prompt,
-                              force = !interactive(), packages = deps[, "Package"])
+    on.exit(file.remove(tempLockfilePath), add = TRUE, after = FALSE)
+    records <- renv::snapshot(project = modulePath, library = moduleLibrary, lockfile = tempLockfilePath, type = "explicit", prompt = prompt, force = !interactive())#, packages = deps[, "Package"])
 
     hasExistingLockfile <- file.exists(lockfilePath)
     if (hasExistingLockfile) {
@@ -543,29 +526,12 @@ installModuleNew <- function(
     })
 
     recordsOriginal <- records
-    # TODO: the module itself shouldn't be recorded when recordPackages == "all"!
-    # nms2adjust <- setdiff(names(jaspRecords), moduleName)
-    # records$Packages[nms2adjust] <- jaspRecords[nms2adjust]
     records$Packages[names(jaspRecords)] <- jaspRecords
     renv::record(records = records$Packages,     lockfile = lockfilePath)
-    # }# else {
-    #  renv::record(records = jaspRecords, lockfile = lockfilePath)
-    #}
-    # renv::snapshot(lockfile = lockfilePath, prompt = prompt, force = !interactive())
 
     cat("restoring library\n")
     renv::restore(library = moduleLibrary, lockfile = lockfilePath, project = moduleLibrary,
                   clean = TRUE, prompt = prompt)
-
-    # if (recordPackages == "all") {
-    #   # reset original records
-    #   renv::record(records = recordsOriginal$Packages,     lockfile = lockfilePath)
-    # }
-    # renv::restore(library = .libPaths(), lockfile = lockfilePath, project = moduleLibrary,
-    #               exclude = c(basename(lockfilePath), jaspPkgsToExclude), prompt = prompt)
-#
-#     if (isFALSE(df$identical[which(rownames(df) == basename(modulePath))]))
-#       renv::install(modulePath, library = moduleLibrary, project = moduleLibrary, prompt = prompt)
 
   }
 
@@ -580,46 +546,55 @@ installModuleNew <- function(
 
   }
 
+  # TODO: there should be an early bail out that does not requrie this step (e.g., when nothing changed and not updating)
+  lockFile <- renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
   if (recordPackages == "all") {
 
-    currentLockfile <- renv:::renv_lockfile_read(file = lockfilePath)
+    records2update <- createGitHubRecordFromLocalJaspPkgs(localPaths[jaspPkgs], jaspPkgs)
+    lockfile <- renv::record(records2update, lockfile = lockFile, project = moduleLibrary)
+    # TODO: consider not recording the module itself inside the lockfile
 
+    # ideally we just call renv:::renv_lockfile_write(lockfile, lockfilePath), but see https://github.com/rstudio/renv/issues/1035
+    file.remove(lockfilePath)
+    renv:::renv_lockfile_write(lockfile, lockfilePath)
 
-    unhackRenv()
-    # reproducible outside of people's local system
-    renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
   }
-  # else if (!reusingLockfile) {
-  #   # not reproducible outside of people's local system
-  #
-  #   # it'd be great if renv::snapshot would just feature an exclude option
-  #   # that would not delete the pkgs from the lockfile but leave them as they are.
-  #
-  #   # first save the original records for the jasp packages
-  #   oldRecords <- jsonlite::read_json(lockfilePath)$Packages[jaspPkgs]
-  #   # snapshot the current state of the library, this overwrites the jasp records
-  #   renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
-  #   # re-record the jasp pkgs since renv has now overwritten them
-  #   renv::record(records = oldRecords, lockfile = lockfilePath)
-  #
-  # }
 
   return("success")
 }
 
-getModuleHashes <- function(jaspRoot) {
+getModuleHashes <- function(paths) {
 
-  jaspRoot <- normalizePath(jaspRoot)
-  hashes <- character()
+  res <- sapply(paths, getModuleHash)
+  names(res) <- basename(paths)
+  return(res)
+  #
+  # jaspRoot <- normalizePath(jaspRoot)
+  # hashes <- character()
+  #
+  # hashes["jaspBase"]   <- getModuleHash(file.path(jaspRoot, "Engine", "jaspBase"))
+  # hashes["jaspGraphs"] <- getModuleHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
+  #
+  # modulePaths <- getModulesPaths(jaspRoot)
+  # for (path in modulePaths)
+  #   hashes[basename(path)] <- getModuleHash(path)
+  #
+  # hashes
+}
 
-  hashes["jaspBase"]   <- getModuleHash(file.path(jaspRoot, "Engine", "jaspBase"))
-  hashes["jaspGraphs"] <- getModuleHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
+getModuleShas <- function(paths) {
 
-  modulePaths <- getModulesPaths(jaspRoot)
-  for (path in modulePaths)
-    hashes[basename(path)] <- getModuleHash(path)
+  res <- lapply(paths, getModuleSha)
+  names(res) <- basename(paths)
+  return(res)
 
-  hashes
+}
+
+getModuleSha <- function(path) {
+
+  cmd0 <- sprintf("git -C %s rev-parse HEAD", path)
+  resCmd0 <- system(cmd0, intern = TRUE)
+
 }
 
 getModulesPaths <- function(jaspRoot) {
@@ -670,7 +645,7 @@ parseUpdatePkgs <- function(lockfilePath, updatePackages = Sys.getenv("JASP_UPDA
   # so that R always returns the same date information. This mainly matters for weekdays(), which otherwise returns the translated day
   oldValue <- Sys.getlocale(category = "LC_TIME")
   Sys.setlocale(category = "LC_TIME", locale = "en_US.UTF-8")
-  on.exit(Sys.setlocale(category = "LC_TIME", locale = oldValue), add = TRUE)
+  on.exit(Sys.setlocale(category = "LC_TIME", locale = oldValue), add = TRUE, after = FALSE)
 
   oldDate <- as.Date(file.mtime(lockfilePath))
   now <- Sys.Date()
@@ -714,13 +689,14 @@ hackRenv <- function() {
     desc <- renv:::renv_description_read(path)
 
     # start of changes
+    cat(sprintf("path = %s\n", path))
     Cacheable <- !isFALSE(getOption("JASP_LOCAL_PATHS", FALSE)) && basename(path) %in% names(getOption("JASP_LOCAL_PATHS"))
     list(Package = desc$Package, Version = desc$Version, Source = "Local",
          RemoteType = "local", RemoteUrl = path, Cacheable = TRUE)
     # end of changes
   }
 
-  # ensures the hash for JASP packages is the commit hash and not based on the DESRIPTION file
+  # ensures the hash for JASP packages is the commit hash and not based on the DESCRIPTION file
   renv_snapshot_description_override <- function(path = NULL, package = NULL) {
     `%||%` <- renv:::`%||%`
     path <- path %||% renv:::renv_package_find(package)
@@ -739,8 +715,8 @@ hackRenv <- function() {
       return(simpleError(msg))
     }
     # start of changes
-    commitHashes <- getOption("JASP_LOCAL_COMMIT_HASHES")
-    if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && dcf$Package %in% names(commitHashes)) {
+    commitHashes <- getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)
+    if (!isFALSE(commitHashes) && dcf$Package %in% names(commitHashes)) {
       cat(sprintf("renv_snapshot_description: Package: %shash: %s\n", format(dcf$Package, width = 20), commitHashes[[dcf$Package]]))
       dcf[["Hash"]] <- commitHashes[[dcf$Package]]
     } else {
@@ -773,17 +749,47 @@ hackRenv <- function() {
     normalized <- renv:::renv_path_normalize(source, winslash = "/", mustWork = TRUE)
     resolved$Source <- "Local"
     # start of changes
-    commitHashes <- getOption("JASP_LOCAL_COMMIT_HASHES")
-    if (!isFALSE(getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)) && record$Package %in% names(commitHashes)) {
+    commitHashes <- getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)
+    if (!isFALSE(commitHashes) && record$Package %in% names(commitHashes)) {
       cat(sprintf("renv_retrieve_explicit: Package: %shash: %s\n", format(record$Package, width = 20), commitHashes[[record$Package]]))
       record$Hash <- commitHashes[[record$Package$Package]]
     }
     # end of changes
     renv:::renv_retrieve_successful(resolved, normalized)
   }
+
+  # hijack renv:::renv_description_read to add the commits to use
+  # renv_description_read_override <- function (path = NULL, package = NULL, subdir = NULL, ...) {
+  #   `%||%` <- renv:::`%||%`
+  #   path <- path %||% find.package(package)
+  #   if (!file.exists(path)) {
+  #     fmt <- "%s does not exist"
+  #     renv:::stopf(fmt, renv:::renv_path_pretty(path))
+  #   }
+  #   if (!renv:::renv_path_absolute(path))
+  #     path <- renv:::renv_path_normalize(path)
+  #   info <- renv:::renv_file_info(path)
+  #   if (identical(info$isdir, TRUE)) {
+  #     components <- c(path, if (nzchar(subdir %||% "")) subdir,
+  #                     "DESCRIPTION")
+  #     path <- paste(components, collapse = "/")
+  #   }
+  #   res <- renv:::filebacked(scope = "DESCRIPTION", path = path, callback = renv:::renv_description_read_impl,
+  #              subdir = subdir, ...)
+  #   browser()
+  #   commitShas <- getOption("JASP_LOCAL_COMMIT_SHAS", FALSE)
+  #   # assumes only jasp modules depend on jasp modules
+  #   if (!isFALSE(commitShas) && res$Package %in% names(commitShas)) {
+  #     for (i in seq_along(commitShas))
+  #       res$Remotes <- gsub(pattern = names(commitShas)[i], replacement = commitShas[i], x = res$Remotes, fixed = TRUE)
+  #   }
+  #   res
+  # }
+
   assignFunctionInPackage(renv_remotes_resolve_path_impl_override, "renv_remotes_resolve_path_impl", "renv")
   assignFunctionInPackage(renv_snapshot_description_override,      "renv_snapshot_description",      "renv")
   assignFunctionInPackage(renv_retrieve_explicit_override,         "renv_retrieve_explicit",         "renv")
+  # assignFunctionInPackage(renv_description_read_override,          "renv_description_read",          "renv")
 }
 
 renv_remotes_resolve_path_impl_backup <- renv:::renv_remotes_resolve_path_impl
@@ -794,4 +800,101 @@ unhackRenv <- function() {
   assignFunctionInPackage(renv_remotes_resolve_path_impl_backup, "renv_remotes_resolve_path_impl", "renv")
   assignFunctionInPackage(renv_snapshot_description_backup,      "renv_snapshot_description",      "renv")
   assignFunctionInPackage(renv_retrieve_explicit_backup,         "renv_retrieve_explicit",         "renv")
+}
+
+findRecursiveJaspDependencies <- function(moduleName, localPaths, jaspPkgs) {
+  seen <- moduleName
+  for (i in 1:30) {
+
+    pkgsToGetDescriptionFrom <- localPaths[names(localPaths) %in% setdiff(jaspPkgs, seen)]
+
+    newJaspPkgs <- Reduce(union, sapply(pkgsToGetDescriptionFrom, function(pkg) {
+      intersect(renv::dependencies(file.path(pkg, "DESCRIPTION"), progress = FALSE)$Package, names(localPaths))
+    }))
+    newJaspPkgs <- setdiff(newJaspPkgs, c(jaspPkgs, seen))
+    if (length(newJaspPkgs) == 0L)
+      break
+
+    seen <- c(jaspPkgs, seen)
+    jaspPkgs <- c(jaspPkgs, newJaspPkgs)
+
+  }
+
+  if (i == 30)
+    warning("Failed to recursively resolve all jasp dependencies after 30 iterations!")
+
+  return(jaspPkgs)
+}
+
+createGitHubRecordFromLocalJaspPkgs <- function(paths, jaspPkgs) {
+  result <- list()
+  for (path in paths)
+    result[[basename(path)]] <- createGitHubRecordFromLocalJaspPkg(path)
+  return(result)
+}
+
+createGitHubRecordFromLocalJaspPkg <- function(path) {
+
+  commitHashes <- getOption("JASP_LOCAL_COMMIT_HASHES", FALSE)
+  description <- renv:::renv_description_read(file.path(path, "DESCRIPTION"))
+
+  fields <- c("Depends", "Imports", "LinkingTo")
+  # adapted from renv:::renv_dependencies_discover_description
+  # build pattern used to split DESCRIPTION fields
+  pattern <- paste0(
+    "([a-zA-Z0-9._]+)",                      # package name
+    "(?:\\s*\\(([><=]+)\\s*([0-9.-]+)\\))?"  # optional version specification
+  )
+
+  data <- lapply(fields, function(field) {
+
+    # read field
+    contents <- description[[field]]
+    if (!is.character(contents))
+      return(list())
+
+    # split on commas
+    parts <- strsplit(description[[field]], "\\s*,\\s*")[[1]]
+
+    # drop any empty fields
+    x <- parts[nzchar(parts)]
+
+    # match to split on package name, version
+    m <- regexec(pattern, x)
+    matches <- regmatches(x, m)
+    if (renv:::empty(matches))
+      return(list())
+
+    # create dependency list
+    dev <- field == "Suggests" && type != "package"
+    renv:::renv_dependencies_list(
+      path,
+      renv:::extract_chr(matches, 2L),
+      renv:::extract_chr(matches, 3L),
+      renv:::extract_chr(matches, 4L),
+      dev
+    )
+
+  })
+  # end of adapted code
+  names(data) <- fields
+  extractField <- function(data, field) {
+    if (length(data[[field]]) > 0L) data[[field]][, "Package"] else list()
+  }
+
+  hash <- renv:::renv_hash_description(file.path(renv::paths$cache(), description$Package, description$Version, commitHashes[[description$Package]], description$Package))
+  list(
+    Package    = description$Package,
+    Version    = description$Version,
+    Source     = "GitHub",
+    RemoteType = "github",
+    RemoteRepo = description$Package,
+    RemoteRef  = "master",
+    RemoteSha  = getModuleSha(path),
+    RemoteHost = renv::config$github.host(),
+    Hash       = hash,
+    Depends    = extractField(data, "Depends"),
+    Imports    = extractField(data, "Imports"),
+    LinkingTo  = extractField(data, "Suggests")
+  )
 }

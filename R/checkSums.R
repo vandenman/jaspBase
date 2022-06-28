@@ -14,7 +14,9 @@ createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
       list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\qmldir$")
     )
 
-  newMd5Sums <- tools::md5sum(srcFiles)
+  # without unname the names(md5sum(path)) == path and so rlang::hash(md5sum(path)) also hashes the local path
+  # making the hashes not reproducible across different computers
+  newMd5Sums <- unname(tools::md5sum(srcFiles))
 
   if (individual)
     return(newMd5Sums)
