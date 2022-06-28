@@ -338,7 +338,9 @@ setupRenv <- function(moduleLibrary) {
   if(getOS() == "windows" || getOS() == "osx")
     options(install.packages.compile.from.source = "never")
 
-  addRenvBeforeAfterDispatch()
+  # do not do this when running unit tests
+  if (!identical(Sys.getenv("TESTTHAT"), "true"))
+    addRenvBeforeAfterDispatch()
 }
 
 #' @export
@@ -417,6 +419,11 @@ installModuleNew <- function(
   deps         <- renv::dependencies(file.path(modulePath, "DESCRIPTION"), progress = FALSE)
   jaspPkgs     <- c(moduleName, intersect(deps$Package, names(localPaths)))
   commitHashes <- getModuleHashes(jaspRoot)
+
+  # unclear if setting .libPaths is necessary
+  oldLibPaths <- .libPaths()
+  .libPaths(moduleLibrary)
+  on.exit(.libPaths(oldLibPaths))
 
   if (recurseJaspDependencies) {
     seen <- moduleName
@@ -504,7 +511,11 @@ installModuleNew <- function(
     hackRenv()
 
     tempLockfilePath <- tempfile(fileext = "renv.lock")
-    records <- renv::snapshot(project = modulePath, lockfile = tempLockfilePath, type = "explicit", prompt = prompt)
+    browser()
+    # TODO: something doesn't work here!
+    deps <- renv::dependencies(file.path(modulePath, "DESCRIPTION"))
+    records <- renv::snapshot(project = modulePath, library = moduleLibrary, lockfile = tempLockfilePath, type = "explicit", prompt = prompt,
+                              force = !interactive(), packages = deps[, "Package"])
 
     hasExistingLockfile <- file.exists(lockfilePath)
     if (hasExistingLockfile) {
@@ -532,6 +543,9 @@ installModuleNew <- function(
     })
 
     recordsOriginal <- records
+    # TODO: the module itself shouldn't be recorded when recordPackages == "all"!
+    # nms2adjust <- setdiff(names(jaspRecords), moduleName)
+    # records$Packages[nms2adjust] <- jaspRecords[nms2adjust]
     records$Packages[names(jaspRecords)] <- jaspRecords
     renv::record(records = records$Packages,     lockfile = lockfilePath)
     # }# else {
@@ -540,8 +554,6 @@ installModuleNew <- function(
     # renv::snapshot(lockfile = lockfilePath, prompt = prompt, force = !interactive())
 
     cat("restoring library\n")
-    # unclear if setting .libPaths is necessary
-    .libPaths(moduleLibrary)
     renv::restore(library = moduleLibrary, lockfile = lockfilePath, project = moduleLibrary,
                   clean = TRUE, prompt = prompt)
 
@@ -569,6 +581,11 @@ installModuleNew <- function(
   }
 
   if (recordPackages == "all") {
+
+    currentLockfile <- renv:::renv_lockfile_read(file = lockfilePath)
+
+
+    unhackRenv()
     # reproducible outside of people's local system
     renv::snapshot(lockfile = lockfilePath, type = "all", project = moduleLibrary, library = moduleLibrary, prompt = prompt, force = !interactive())
   }
@@ -599,8 +616,6 @@ getModuleHashes <- function(jaspRoot) {
   hashes["jaspGraphs"] <- getModuleHash(file.path(jaspRoot, "Engine", "jaspGraphs"))
 
   modulePaths <- getModulesPaths(jaspRoot)
-  moduleNames <- basename(modulePaths)
-
   for (path in modulePaths)
     hashes[basename(path)] <- getModuleHash(path)
 
@@ -769,4 +784,14 @@ hackRenv <- function() {
   assignFunctionInPackage(renv_remotes_resolve_path_impl_override, "renv_remotes_resolve_path_impl", "renv")
   assignFunctionInPackage(renv_snapshot_description_override,      "renv_snapshot_description",      "renv")
   assignFunctionInPackage(renv_retrieve_explicit_override,         "renv_retrieve_explicit",         "renv")
+}
+
+renv_remotes_resolve_path_impl_backup <- renv:::renv_remotes_resolve_path_impl
+renv_snapshot_description_backup      <- renv:::renv_snapshot_description
+renv_retrieve_explicit_backup         <- renv:::renv_retrieve_explicit
+
+unhackRenv <- function() {
+  assignFunctionInPackage(renv_remotes_resolve_path_impl_backup, "renv_remotes_resolve_path_impl", "renv")
+  assignFunctionInPackage(renv_snapshot_description_backup,      "renv_snapshot_description",      "renv")
+  assignFunctionInPackage(renv_retrieve_explicit_backup,         "renv_retrieve_explicit",         "renv")
 }

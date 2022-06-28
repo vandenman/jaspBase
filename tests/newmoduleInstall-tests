@@ -1,0 +1,13 @@
+what to test:
+
+1. Install from scratch (a) with and  (b) without recording the lockfile.
+    - [ ] test paths in installed location.
+    - [ ] test records in lockfile.
+    - [ ] test that the package is copied to the cache.
+2. Install without recording the lockfile and then run again and recording the lockfile.
+    - [ ] test that package is not reinstalled.
+    - [ ] test that records in the lockfile are updated.
+4. Install without recording the lockfile and then update a dependency.
+    - [ ] test that package is not reinstalled.
+    - [ ] test that dependency is updated.
+
