@@ -10,7 +10,13 @@ mkdirs <- function(..., clean = TRUE) {
 
 # order is intentional since y may be missing
 expect_file_test <- function(failure_message, op, x, y) {
-  testthat::expect(utils::file_test(op, x, y), failure_message)
+  testthat::expect(
+  if (op == "-L" && package_version(R.Version()) < package_version("4.2.1")) {
+    # definition in R-4.2.1
+    Sys.readlink((!is.na(y <- Sys.readlink(x)) & nzchar(y)))
+  } else {
+    utils::file_test(op, x, y)
+  }, failure_message)
 }
 
 expect_file    <- function(path, failure_message) expect_file_test(failure_message, "-f", path)
