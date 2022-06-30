@@ -171,7 +171,7 @@ test_that("package installation recognizes modifications in jasp modules and jas
 
   if (dir.exists(file.path(tempRoot, "mock-jasp-desktop")))
     unlink(file.path(tempRoot, "mock-jasp-desktop"), recursive = TRUE)
-  file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, overwrite = TRUE)
+  file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, copy.mode = FALSE)
   mockJaspRoot    <- file.path(tempRoot, "mock-jasp-desktop")
   modulePkg       <- file.path(mockJaspRoot,    "Modules", moduleName)
 
@@ -234,7 +234,9 @@ test_that("installing a package with a lockfile works", {
 
   mockJaspRoot0    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
 
-  file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, overwrite = TRUE)
+  if (dir.exists(file.path(tempRoot, "mock-jasp-desktop")))
+    unlink(file.path(tempRoot, "mock-jasp-desktop"), recursive = TRUE)
+  file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, copy.mode = FALSE)
   mockJaspRoot    <- file.path(tempRoot, "mock-jasp-desktop")
 
   moduleName      <- "jaspDescriptivesLockfile"
