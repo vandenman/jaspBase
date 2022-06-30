@@ -4,11 +4,11 @@ what to test:
     - [x] test paths in installed location.
     - [x] test records in lockfile.
     - [x] test that the package is copied to the cache.
-    - [ ] test that the records in (b) refer to GitHub.
+    - [x] test that the records in (b) refer to GitHub.
 2. Install without recording the lockfile and then run again and recording the lockfile.
-    - [ ] test that package(s) are not reinstalled.
-    - [ ] test that records in the lockfile are updated.
-    - [ ] test that the updated records refer to GitHub.
+    - [x] test that package(s) are not reinstalled.
+    - [x] test that records in the lockfile are updated.
+    - [x] test that the updated records refer to GitHub.
 3. Install without recording the lockfile and then update a dependency.
     - [x] test that main module is not reinstalled.
     - [x] test that dependency is updated.
@@ -16,3 +16,5 @@ what to test:
     - [ ] test that library state matches lockfile.
     - [ ] test that updating dependencies works.
 
+Explore the possibility that we always record our custom hash in the cache and also always use it
+when recordPackages = "all". The hash is meaningless across machines anyway.

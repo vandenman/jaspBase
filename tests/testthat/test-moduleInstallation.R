@@ -1,8 +1,5 @@
-# TODO: create descriptive convenience wrappers for
-# testthat::expect(utils::file_test("-d", dir) and friends
+test_that("package installation from scratch works", {
 
-test_that("package installation works", {
-  # skip("for now")
   tempRoot <- tempdir()
   mockJaspRoot    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
@@ -21,20 +18,17 @@ test_that("package installation works", {
     "jaspGraphs"       = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspGraphs")),
     "jaspBase"         = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspBase"))
   )
+  # TODO: use snapshot for this?
   expect_identical(precomputedHashes,
     c(jaspDescriptives = "b643f59a7ff78c92939a8a02daf7e293",
       jaspGraphs       = "f75115edd4f93c290cb30d507169bd70",
       jaspBase         = "a9c71629923834192707bb0286c2efa6")
   )
 
-
-  # for (recordPackages in "all") {
+  optionsBefore <- options()
   for (recordPackages in c("localJasp", "all")) {
-    # for (recordPackages in c("localJasp")) {
 
     mkdirs(tempBuildFolder, tempBuildFolder, moduleLibrary, renvRootPath, renvCachePath)
-
-    # debugonce(jaspBase:::installModuleNew)
 
     jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary, recordPackages = recordPackages)
 
@@ -48,64 +42,135 @@ test_that("package installation works", {
 
     lockfile <- renv:::renv_lockfile_read(lockfilePath)
 
-    if (recordPackages == "all")
-      browser()
+    for (pkg in c(moduleName, "jaspGraphs", "jaspBase")) {
 
-    moduleDescription <- renv:::renv_description_read(file.path(modulePkg, "DESCRIPTION"))
-    moduleVersion <- moduleDescription$Version
-    # TODO: for some reason the hash in the cache is not the same as the one in the lockfile!
-    moduleHash <- if (recordPackages == "all") {
-      precomputedHashes[[moduleName]]
-    } else {
-      lockfile$Packages[[moduleName]]$Hash
-    }
-    cacheDir <- file.path(renv::paths$cache(), moduleName, moduleVersion, moduleHash, moduleName)
+      descriptionPath <- file.path(
+        mockJaspRoot,
+        if (pkg %in% c("jaspGraphs", "jaspBase")) "Engine" else "Modules",
+        pkg, "DESCRIPTION"
+      )
 
-    hashReference <- if (recordPackages == "localJasp") {
-      precomputedHashes[[moduleName]]
-    } else {
-      renv:::renv_hash_description(file.path(cacheDir, "DESCRIPTION"))
-    }
-
-    expect_identical(moduleHash, hashReference, label = sprintf("hash of %s in lockfile (%s) does not match the renv hash.", moduleName, recordPackages))
-    expect_dir(cacheDir, sprintf("Failed to cache %s - Folder does not exist in the renv cache", moduleName))
-
-    for (dep in c("jaspGraphs", "jaspBase")) {
-      depDescription <- renv:::renv_description_read(file.path(mockJaspRoot, "Engine", dep, "DESCRIPTION"))
+      depDescription <- renv:::renv_description_read(descriptionPath)
       depVersion <- depDescription$Version
-      depHash <- if (recordPackages == "all") {
-        precomputedHashes[[dep]]
+      depHash <- lockfile$Packages[[pkg]]$Hash
+      cacheDir <- file.path(renv::paths$cache(), pkg, depVersion, depHash, pkg)
+
+      hashReference <- precomputedHashes[[pkg]]
+
+      expect_identical(depHash, hashReference, label = sprintf("hash of %s in lockfile (%s) does not match the renv hash.", pkg, recordPackages))
+      expect_dir(cacheDir, sprintf("Failed to cache %s - Folder does not exist in the renv cache", pkg))
+
+      if (recordPackages == "localJasp") {
+        expect_identical(lockfile$Packages[[pkg]]$Source, "Local")
       } else {
-        lockfile$Packages[[dep]]$Hash
-      }
-      cacheDir <- file.path(renv::paths$cache(), dep, depVersion, depHash, dep)
-
-      hashReference <- if (recordPackages == "localJasp") {
-        precomputedHashes[[dep]]
-      } else {
-        renv:::renv_hash_description(file.path(cacheDir, "DESCRIPTION"))
+        expect_identical(lockfile$Packages[[pkg]]$Source, "GitHub")
       }
 
-      expect_identical(depHash, hashReference, label = sprintf("hash of %s in lockfile (%s) does not match the renv hash.", moduleName, recordPackages))
-      expect_dir(cacheDir, sprintf("Failed to cache %s - Folder does not exist in the renv cache", dep))
-
-      testthat::expect_identical(moduleHash, precomputedHashes[[dep]], label = sprintf("hash of %s in lockfile does not match the precomputed hash.", dep))
-      cacheDir <- file.path(renv::paths$cache(), dep, moduleVersion, lockfile$Packages[[dep]]$Hash, dep)
-      testthat::expect(utils::file_test("-d", cacheDir), sprintf("Failed to cache %s - Folder does not exist in the renv cache", dep))
     }
-
   }
+
+  expect_identical(options(), optionsBefore, label = "options changed were reset")
 
 })
 
+test_that("switching between recordPackages correctly updates the lockfile", {
+
+  # NOTE: this test is essentially identical to the previous one, except that we only call
+  # mkdirs(tempBuildFolder, tempBuildFolder, moduleLibrary, renvRootPath, renvCachePath)
+  # ONCE, so that the same folders (renv-cache, etc.) are reused across the runs.
+  # In addition, this test does not test precomputed hashes or option leakage
+  # instead it tests that the cache is reused and that
+
+  tempRoot <- tempdir()
+  mockJaspRoot    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
+  moduleName      <- "jaspDescriptives"
+  tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
+  moduleLibrary   <- file.path(tempBuildFolder, "Modules", moduleName)
+  modulePkg       <- file.path(mockJaspRoot,    "Modules", moduleName)
+
+  # let's not polute anybodies cache/ root
+  renvRootPath  <- file.path(tempRoot, "renv-root")
+  renvCachePath <- file.path(tempRoot, "renv-cache")
+  withr::local_envvar(c("RENV_PATHS_ROOT" = renvRootPath, "RENV_PATHS_CACHE" = renvCachePath))
+
+  # compute the hashes that are expected in the lockfile
+  precomputedHashes <- c(
+    "jaspDescriptives" = jaspBase:::getModuleHash(modulePkg),
+    "jaspGraphs"       = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspGraphs")),
+    "jaspBase"         = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspBase"))
+  )
+
+  # we repeat this multiple times to ensure that lockfile updates are correct
+  opts <- c("localJasp", "all", "localJasp", "all")
+  for (opt in list(opts, rev(opts))) {
+
+    # this line is the big difference with the previous test
+    mkdirs(tempBuildFolder, tempBuildFolder, moduleLibrary, renvRootPath, renvCachePath)
+
+    idx <- 0L # to track the iterations
+    fileinfo <- list()
+
+    for (recordPackages in opts) {
+
+      idx <- idx + 1L
+      jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary, recordPackages = recordPackages)
+
+      installedDir <- file.path(moduleLibrary, moduleName)
+
+      expect_dir    (installedDir, failure_message = "Failed to install jaspDescriptives - No folder.")
+      expect_symlink(installedDir, failure_message = "Failed to cache jaspDescriptives - Folder is not a symlink.")
+
+      lockfilePath <- file.path(moduleLibrary, "renv.lock")
+      expect_file(lockfilePath, "Lockfile for jaspDescriptives does not exist")
+
+      lockfile <- renv:::renv_lockfile_read(lockfilePath)
+      for (pkg in c(moduleName, "jaspGraphs", "jaspBase")) {
+
+        descriptionPath <- file.path(
+          mockJaspRoot,
+          if (pkg %in% c("jaspGraphs", "jaspBase")) "Engine" else "Modules",
+          pkg, "DESCRIPTION"
+        )
+
+        depDescription <- renv:::renv_description_read(descriptionPath)
+        depVersion <- depDescription$Version
+        depHash <- lockfile$Packages[[pkg]]$Hash
+        cacheDir <- file.path(renv::paths$cache(), pkg, depVersion, depHash, pkg)
+
+        hashReference <- precomputedHashes[[pkg]]
+
+        expect_identical(depHash, hashReference, label = sprintf("hash of %s in lockfile (%s) does not match the renv hash.", pkg, recordPackages))
+        expect_dir(cacheDir, sprintf("Failed to cache %s - Folder does not exist in the renv cache", pkg))
+
+        if (recordPackages == "localJasp") {
+          expect_identical(lockfile$Packages[[pkg]]$Source, "Local")
+        } else {
+          expect_identical(lockfile$Packages[[pkg]]$Source, "GitHub")
+        }
+
+        # the first time we record the file info of the package in the module library
+        # the second run we assert that this is unchanged (which implies the package was retrieved from the cache)
+        if (idx == 1L) {
+          fileinfo[[pkg]] <- file.info(file.path(moduleLibrary, pkg))
+        } else {
+          fileinfo_test <- file.info(file.path(moduleLibrary, pkg))
+          expect_identical(fileinfo[[pkg]], fileinfo_test)
+        }
+      }
+    }
+  }
+})
+
 test_that("package installation recognizes modifications in jasp modules and jasp module dependencies", {
-  skip("for now")
+
   tempRoot <- tempdir()
   mockJaspRoot0   <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
   tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
   moduleLibrary   <- file.path(tempBuildFolder, "Modules", moduleName)
 
+  if (dir.exists(file.path(tempRoot, "mock-jasp-desktop")))
+    unlink(file.path(tempRoot, "mock-jasp-desktop"), recursive = TRUE)
   file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, overwrite = TRUE)
   mockJaspRoot    <- file.path(tempRoot, "mock-jasp-desktop")
   modulePkg       <- file.path(mockJaspRoot,    "Modules", moduleName)
@@ -122,7 +187,7 @@ test_that("package installation recognizes modifications in jasp modules and jas
   # 1. Install the package
   jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary)
 
-  lockFile1 <- renv:::renv_lockfile_read(lockfilePath)
+  lockfile1 <- renv:::renv_lockfile_read(lockfilePath)
   fileinfo1 <- file.info(installedModulePath)
 
   # 2. Modify jaspGraphs
@@ -133,7 +198,7 @@ test_that("package installation recognizes modifications in jasp modules and jas
 
   jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary)
 
-  lockFile2 <- renv:::renv_lockfile_read(lockfilePath)
+  lockfile2 <- renv:::renv_lockfile_read(lockfilePath)
   fileinfo2 <- file.info(installedModulePath)
 
   # 3. Modify jaspDescriptives
@@ -144,20 +209,86 @@ test_that("package installation recognizes modifications in jasp modules and jas
 
   jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary)
 
-  lockFile3 <- renv:::renv_lockfile_read(lockfilePath)
+  lockfile3 <- renv:::renv_lockfile_read(lockfilePath)
   fileinfo3 <- file.info(installedModulePath)
 
-  expect_identical(lockFile1$Packages$jaspGraphs$Version, "0.5.2.13")
-  expect_identical(lockFile2$Packages$jaspGraphs$Version, "0.5.2.14")
-  expect_identical(lockFile1$Packages$jaspDescriptives$Hash, lockFile2$Packages$jaspDescriptives$Hash)
+  expect_identical(lockfile1$Packages$jaspGraphs$Version, "0.5.2.13")
+  expect_identical(lockfile2$Packages$jaspGraphs$Version, "0.5.2.14")
+  expect_identical(lockfile1$Packages$jaspDescriptives$Hash, lockfile2$Packages$jaspDescriptives$Hash)
   expect_identical(fileinfo1, fileinfo2)
 
-  expect_identical(lockFile3$Packages$jaspDescriptives$Version, "0.15.1")
+  expect_identical(lockfile3$Packages$jaspDescriptives$Version, "0.15.1")
   expect_failure(expect_identical(
-    lockFile1$Packages$jaspDescriptives$Version,
-    lockFile3$Packages$jaspDescriptives$Version
+    lockfile1$Packages$jaspDescriptives$Version,
+    lockfile3$Packages$jaspDescriptives$Version
   ))
   expect_failure(expect_identical(fileinfo1, fileinfo3))
 
 })
 
+test_that("installing a package with a lockfile works", {
+
+  skip("We need to use real jasp Modules before the SHA in the lockfile bakes any sense!")
+
+  tempRoot <- tempdir()
+
+  mockJaspRoot0    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
+
+  file.copy(mockJaspRoot0, tempRoot, recursive = TRUE, overwrite = TRUE)
+  mockJaspRoot    <- file.path(tempRoot, "mock-jasp-desktop")
+
+  moduleName      <- "jaspDescriptivesLockfile"
+  tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
+  moduleLibrary   <- file.path(tempBuildFolder, "Modules", moduleName)
+  modulePkg       <- file.path(mockJaspRoot,    "Modules", moduleName)
+
+  # let's not polute anybodies cache/ root
+  renvRootPath  <- file.path(tempRoot, "renv-root")
+  renvCachePath <- file.path(tempRoot, "renv-cache")
+  withr::local_envvar(c("RENV_PATHS_ROOT" = renvRootPath, "RENV_PATHS_CACHE" = renvCachePath))
+
+  # compute the hashes that are expected in the lockfile
+  precomputedHashes <- c(
+    "jaspDescriptivesLockfile" = jaspBase:::getModuleHash(modulePkg),
+    "jaspGraphs"               = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspGraphs")),
+    "jaspBase"                 = jaspBase:::getModuleHash(file.path(mockJaspRoot, "Engine", "jaspBase"))
+  )
+
+  mkdirs(tempBuildFolder, tempBuildFolder, moduleLibrary, renvRootPath, renvCachePath)
+
+  jaspBase::installJaspModuleNew(modulePkg = modulePkg, jaspRoot = mockJaspRoot, moduleLibrary = moduleLibrary)
+
+  expect_dir    (installedDir, failure_message = "Failed to install jaspDescriptivesLockfile - No folder.")
+  expect_symlink(installedDir, failure_message = "Failed to cache jaspDescriptivesLockfile - Folder is not a symlink.")
+
+  lockfilePath <- file.path(moduleLibrary, "renv.lock")
+  expect_file(lockfilePath, "Lockfile for jaspDescriptivesLockfile does not exist")
+
+  lockfile <- renv:::renv_lockfile_read(lockfilePath)
+
+  for (pkg in c(moduleName, "jaspGraphs", "jaspBase")) {
+
+    descriptionPath <- file.path(
+      mockJaspRoot,
+      if (pkg %in% c("jaspGraphs", "jaspBase")) "Engine" else "Modules",
+      pkg, "DESCRIPTION"
+    )
+
+    depDescription <- renv:::renv_description_read(descriptionPath)
+    depVersion <- depDescription$Version
+    depHash <- lockfile$Packages[[pkg]]$Hash
+    cacheDir <- file.path(renv::paths$cache(), pkg, depVersion, depHash, pkg)
+
+    hashReference <- precomputedHashes[[pkg]]
+
+    expect_identical(depHash, hashReference, label = sprintf("hash of %s in lockfile (%s) does not match the renv hash.", pkg, recordPackages))
+    expect_dir(cacheDir, sprintf("Failed to cache %s - Folder does not exist in the renv cache", pkg))
+
+    if (recordPackages == "localJasp") {
+      expect_identical(lockfile$Packages[[pkg]]$Source, "Local")
+    } else {
+      expect_identical(lockfile$Packages[[pkg]]$Source, "GitHub")
+    }
+
+  }
+})
