@@ -14,14 +14,12 @@ createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
       list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\qmldir$")
     )
 
-  # without unname the names(md5sum(path)) == path and so rlang::hash(md5sum(path)) also hashes the local path
-  # making the hashes not reproducible across different computers
-  newMd5Sums <- unname(tools::md5sum(srcFiles))
+  hashes <- rlang::hash_file(srcFiles)
 
   if (individual)
-    return(newMd5Sums)
+    return(hashes)
   else
-    return(hashRobject(newMd5Sums))
+    return(rlang::hash(hashes))
 
 }
 
@@ -49,9 +47,9 @@ md5SumsChanged <- function(modulePkg, moduleLibrary) {
 
 }
 
-hashRobject <- function(contents) {
+# hashRstring <- function(contents) {
 
-  return(rlang::hash(contents))
+  # return(rlang::hash(contents))
 
   # the code below is based on renv:::renv_hash_description_impl
   # but is (sadly) not reproducible acros unix <-> windows.
@@ -81,4 +79,4 @@ hashRobject <- function(contents) {
   # unlink(tempfile)
 
   # return(hash)
-}
+# }

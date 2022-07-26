@@ -1,7 +1,7 @@
 test_that("package installation from scratch works", {
 
   tempRoot <- tempdir()
-  mockJaspRoot    <- normalizePath(test_path("mock-jasp-desktop"))
+  mockJaspRoot    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
   tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
   moduleLibrary   <- file.path(tempBuildFolder, "Modules", moduleName)
