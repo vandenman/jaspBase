@@ -13,7 +13,9 @@ installModuleNew(
   recordPackages = c("localJasp", "all"),
   recurseJaspDependencies = TRUE,
   useLocalLockfile = FALSE,
-  prompt = FALSE
+  respectModuleLockfile = TRUE,
+  prompt = FALSE,
+  verbose = 1L
 )
 }
 \arguments{

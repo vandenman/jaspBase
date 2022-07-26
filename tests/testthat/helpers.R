@@ -14,10 +14,10 @@ expect_file_test <- function(failure_message, op, x, y) {
   if (op == "-L" && getOS() == "windows") {
     # negation of renv:::renv_file_broken_win32
     res <- if (getRversion() < "4.2.0") {
-      info <- suppressWarnings(file.info(paths))
+      info <- suppressWarnings(file.info(x))
       (info$isdir %in% TRUE) & is.na(info$mtime)
     } else {
-      file.access(paths, mode = 0L) == 0L & !file.exists(paths)
+      file.access(x, mode = 0L) == 0L & !file.exists(x)
     }
     !res
   } else {
