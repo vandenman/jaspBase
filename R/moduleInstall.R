@@ -326,7 +326,7 @@ setupRenv <- function(moduleLibrary) {
   for(cachePath in cachePaths[[1]]) #strsplit is vectorized but we only give it a single string, so index to that single first one
     if (!dir.exists(cachePath))
      stop(sprintf("A cache is supposed to be at '%s' but it does not exist!", cachePath))
-  
+
   Sys.setenv("RENV_PATHS_LIBRARY" = moduleLibrary)
 
   cat("Using the following paths:\n")
@@ -468,7 +468,7 @@ installModuleNew <- function(
 
     lockfileData <- renv:::renv_lockfile_read(lockfilePath)
 
-    `%||%` <- rlang::`%||%`
+    `%||%` <- function(x, y) if (is.null(x)) y else x
     df$lockfile  <- vapply(jaspPkgs, FUN.VALUE = character(1L), function(pkg) lockfileData$Packages[[pkg]]$Hash %||% "missing")
     df$local     <- vapply(jaspPkgs, FUN.VALUE = character(1L), function(pkg) commitHashes[[pkg]] %||% "missing")
     # df$local <- character(nrow(df))

@@ -11,10 +11,15 @@ mkdirs <- function(..., clean = TRUE) {
 # order is intentional since y may be missing
 expect_file_test <- function(failure_message, op, x, y) {
   testthat::expect(
-  if (op == "-L" && package_version(R.Version()) < package_version("4.2.1")) {
-    # definition in R-4.2.1, but does not work
-    # Sys.readlink((!is.na(y <- Sys.readlink(x)) & nzchar(y)))
-    TRUE
+  if (op == "-L" && getOS() == "windows") {
+    # negation of renv:::renv_file_broken_win32
+    res <- if (getRversion() < "4.2.0") {
+      info <- suppressWarnings(file.info(paths))
+      (info$isdir %in% TRUE) & is.na(info$mtime)
+    } else {
+      file.access(paths, mode = 0L) == 0L & !file.exists(paths)
+    }
+    !res
   } else {
     utils::file_test(op, x, y)
   }, failure_message)

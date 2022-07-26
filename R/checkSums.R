@@ -21,7 +21,7 @@ createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
   if (individual)
     return(newMd5Sums)
   else
-    return(rlang::hash(newMd5Sums))
+    return(hashRobject(newMd5Sums))
 
 }
 
@@ -47,4 +47,31 @@ md5SumsChanged <- function(modulePkg, moduleLibrary) {
   newMd5Sums <- createMd5Sums(modulePkg)
   !identical(oldMd5Sums, newMd5Sums)
 
+}
+
+hashRobject <- function(contents) {
+
+  # alternative to rlang::hash based on renv:::renv_hash_description_impl
+
+  tempfile <- tempfile("jaspBase-hash-")
+  # create the file connection (use binary so that unix newlines are used
+  # across platforms, for more stable hashing)
+  con <- file(tempfile, open = "wb")
+
+  # write to the file
+  writeLines(enc2utf8(contents), con = con, useBytes = TRUE)
+
+  # flush to ensure we've written to file
+  flush(con)
+
+  # close the connection and remove the file
+  close(con)
+
+  # ready for hasing
+  hash <- unname(tools::md5sum(tempfile))
+
+  # remove the old file
+  unlink(tempfile)
+
+  return(hash)
 }
