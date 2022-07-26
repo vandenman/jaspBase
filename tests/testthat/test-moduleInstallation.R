@@ -20,9 +20,9 @@ test_that("package installation from scratch works", {
   )
   # TODO: use snapshot for this?
   expect_identical(precomputedHashes,
-    c(jaspDescriptives = "b643f59a7ff78c92939a8a02daf7e293",
-      jaspGraphs       = "f75115edd4f93c290cb30d507169bd70",
-      jaspBase         = "a9c71629923834192707bb0286c2efa6")
+    c(jaspDescriptives = "733ba9c05617028e98efc0eff76d72fa",
+      jaspGraphs       = "fb30f27b6a5c8b3eac68d53c97904b06",
+      jaspBase         = "4f3784d2c99bb9849772593ecf213f2d")
   )
 
   optionsBefore <- options()

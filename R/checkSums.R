@@ -8,23 +8,32 @@ createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
   )
 
   if (includeQML)
-    scrFiles <- c(
+    srcFiles <- c(
       srcFiles,
       list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\.(qml|po|svg|png|jpg|md)$"),
       list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\qmldir$")
     )
 
+  cat("computing hashes for these files:\n")
+  cat(srcFiles, sep = "\n")
   hashes <- rlang::hash_file(srcFiles)
+  cat("computed these hashes:\n")
+  cat(paste0(basename(srcFiles), ": ", hashes, collapse = "\n"))
+  cat("\n")
 
   if (individual)
     return(hashes)
-  else
-    return(rlang::hash(hashes))
+  else {
+    hash <- rlang::hash(hashes)
+    cat(sprintf("computed this single hash: %s\n", hash))
+    return(hash)
+  }
+
 
 }
 
 makeMd5SumsFilename <- function(modulePkg, moduleLibrary) {
-  file.path(paste0(moduleLibrary, "/.."), paste(basename(modulePkg), "md5sums.rds", sep = "_"))
+  file.path(moduleLibrary, "..", paste(basename(modulePkg), "md5sums.rds", sep = "_"))
 }
 
 writeMd5Sums <- function(modulePkg, moduleLibrary) {
