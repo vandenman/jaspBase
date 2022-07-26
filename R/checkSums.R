@@ -51,27 +51,34 @@ md5SumsChanged <- function(modulePkg, moduleLibrary) {
 
 hashRobject <- function(contents) {
 
-  # alternative to rlang::hash based on renv:::renv_hash_description_impl
+  return(rlang::hash(contents))
 
-  tempfile <- tempfile("jaspBase-hash-")
+  # the code below is based on renv:::renv_hash_description_impl
+  # but is (sadly) not reproducible acros unix <-> windows.
+  # using the stuff below only makes sense if we are able to drop rlang as a dependency
+
+  # concatenate hashes to single string
+  # contents <- paste(contents, collapse = "")
+
+  # tempfile <- tempfile("jaspBase-hash-")
   # create the file connection (use binary so that unix newlines are used
   # across platforms, for more stable hashing)
-  con <- file(tempfile, open = "wb")
+  # con <- file(tempfile, open = "wb")
 
   # write to the file
-  writeLines(enc2utf8(contents), con = con, useBytes = TRUE)
+  # writeLines(enc2utf8(contents), con = con, useBytes = TRUE)
 
   # flush to ensure we've written to file
-  flush(con)
+  # flush(con)
 
   # close the connection and remove the file
-  close(con)
+  # close(con)
 
-  # ready for hasing
-  hash <- unname(tools::md5sum(tempfile))
+  # ready for hashing
+  # hash <- unname(tools::md5sum(tempfile))
 
   # remove the old file
-  unlink(tempfile)
+  # unlink(tempfile)
 
-  return(hash)
+  # return(hash)
 }

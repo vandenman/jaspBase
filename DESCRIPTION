@@ -28,6 +28,7 @@ Imports:
   Rcpp (>= 0.12.14),
   renv,
   rjson,
+  rlang,
   rvg,
   svglite,
   systemfonts,

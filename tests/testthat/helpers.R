@@ -12,14 +12,16 @@ mkdirs <- function(..., clean = TRUE) {
 expect_file_test <- function(failure_message, op, x, y) {
   testthat::expect(
   if (op == "-L" && getOS() == "windows") {
+
+    fs::is_link(x)
     # negation of renv:::renv_file_broken_win32
-    res <- if (getRversion() < "4.2.0") {
-      info <- suppressWarnings(file.info(x))
-      (info$isdir %in% TRUE) & is.na(info$mtime)
-    } else {
-      file.access(x, mode = 0L) == 0L & !file.exists(x)
-    }
-    !res
+    # res <- if (getRversion() < "4.2.0") {
+    #   info <- suppressWarnings(file.info(x))
+    #   (info$isdir %in% TRUE) & is.na(info$mtime)
+    # } else {
+    #   file.access(x, mode = 0L) == 0L & !file.exists(x)
+    # }
+    # !res
   } else {
     utils::file_test(op, x, y)
   }, failure_message)
