@@ -20,7 +20,7 @@ test_that("package installation from scratch works", {
   )
   # TODO: use snapshot for this?
   expect_identical(precomputedHashes,
-    c(jaspDescriptives = "733ba9c05617028e98efc0eff76d72fa",
+    c(jaspDescriptives = "e1226f32540dfd6fdebbabbdc1086dff",
       jaspGraphs       = "fb30f27b6a5c8b3eac68d53c97904b06",
       jaspBase         = "4f3784d2c99bb9849772593ecf213f2d")
   )
