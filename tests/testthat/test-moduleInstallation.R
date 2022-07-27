@@ -1,6 +1,6 @@
 test_that("package installation from scratch works", {
 
-  tempRoot <- tempdir()
+  tempRoot        <- withr::local_tempdir(pattern = "jaspBase-test-")
   mockJaspRoot    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
   tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
@@ -79,9 +79,9 @@ test_that("switching between recordPackages correctly updates the lockfile", {
   # mkdirs(tempBuildFolder, tempBuildFolder, moduleLibrary, renvRootPath, renvCachePath)
   # ONCE, so that the same folders (renv-cache, etc.) are reused across the runs.
   # In addition, this test does not test precomputed hashes or option leakage
-  # instead it tests that the cache is reused and that
+  # instead it tests that the cache is reused and that ???
 
-  tempRoot <- tempdir()
+  tempRoot        <- withr::local_tempdir(pattern = "jaspBase-test-")
   mockJaspRoot    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
   tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
@@ -163,7 +163,7 @@ test_that("switching between recordPackages correctly updates the lockfile", {
 
 test_that("package installation recognizes modifications in jasp modules and jasp module dependencies", {
 
-  tempRoot <- tempdir()
+  tempRoot        <- withr::local_tempdir(pattern = "jaspBase-test-")
   mockJaspRoot0   <- normalizePath(testthat::test_path("mock-jasp-desktop"))
   moduleName      <- "jaspDescriptives"
   tempBuildFolder <- file.path(tempRoot, "jasp-desktop-build")
@@ -230,7 +230,7 @@ test_that("installing a package with a lockfile works", {
 
   skip("We need to use real jasp Modules before the SHA in the lockfile makes any sense!")
 
-  tempRoot <- tempdir()
+  tempRoot <- withr::local_tempdir(pattern = "jaspBase-test-")
 
   mockJaspRoot0    <- normalizePath(testthat::test_path("mock-jasp-desktop"))
 
