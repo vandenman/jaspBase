@@ -22,7 +22,8 @@ test_that("package installation from scratch works", {
   expect_identical(precomputedHashes,
     c(jaspDescriptives = "e1226f32540dfd6fdebbabbdc1086dff",
       jaspGraphs       = "fb30f27b6a5c8b3eac68d53c97904b06",
-      jaspBase         = "4f3784d2c99bb9849772593ecf213f2d")
+      jaspBase         = "4f3784d2c99bb9849772593ecf213f2d"),
+    info = if (getOS() == "windows") "This test only passes when line endings consist of \\n (LF), not \\r\\n (CRLF), which is the default on windows."
   )
 
   optionsBefore <- options()

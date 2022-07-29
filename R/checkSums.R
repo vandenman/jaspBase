@@ -14,21 +14,12 @@ createMd5Sums <- function(modulePkg, individual = FALSE, includeQML = TRUE) {
       list.files(file.path(modulePkg, "inst"),  recursive = TRUE, full.names = TRUE, pattern = "\\qmldir$")
     )
 
-  cat("computing hashes for these files:\n")
-  cat(srcFiles, sep = "\n")
   hashes <- rlang::hash_file(srcFiles)
-  cat("computed these hashes:\n")
-  cat(paste0(basename(srcFiles), ": ", hashes, collapse = "\n"))
-  cat("\n")
 
   if (individual)
     return(hashes)
-  else {
-    hash <- rlang::hash(hashes)
-    cat(sprintf("computed this single hash: %s\n", hash))
-    return(hash)
-  }
-
+  else
+    return(rlang::hash(hashes))
 
 }
 
