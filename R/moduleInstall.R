@@ -415,7 +415,7 @@ installJaspModuleNew <- function(modulePkg, jaspRoot, moduleLibrary, repos = get
   r["CRAN"] <- repos
   options(repos = r)
 
-  setupRenv(moduleLibrary)
+  setupRenv(moduleLibrary, modulePkg)
 
   return(pkgbuild::with_build_tools(
     installModuleNew(modulePkg, jaspRoot, moduleLibrary, updatePackages = updatePackages, recordPackages = recordPackages,
