@@ -517,9 +517,9 @@ installModuleNew <- function(
   # commitSHas   <- getModuleShas(localPaths)
 
   # unclear if setting .libPaths is necessary (probably necessary, otherwise spurious packages are recorded!)
-  oldLibPaths <- .libPaths()
-  .libPaths(moduleLibrary)
-  on.exit(.libPaths(oldLibPaths), add = TRUE, after = FALSE)
+  # oldLibPaths <- .libPaths()
+  # .libPaths(moduleLibrary)
+  # on.exit(.libPaths(oldLibPaths), add = TRUE, after = FALSE)
 
 
   if (verbose >= 1) cat("\nLocal jasp dependencies: ", paste(jaspPkgs, collapse = ", "), ".\n", sep = "")
@@ -661,6 +661,7 @@ installModuleNew <- function(
 
   if (updatePkgs) {
 
+    # TODO: probably we shouldn't use .libPaths() here!
     if (verbose >= 1) cat("updating R package dependencies\n")
     renv::update(library = .libPaths(), exclude = jaspPkgs, project = moduleLibrary)
 
