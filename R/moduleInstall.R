@@ -28,7 +28,7 @@ postInstallFixes <- function(folderToFix) {
 isModulePkgArchive <- function(modulePkg) { return(any(endsWith(modulePkg, c(".tar.gz", ".zip", ".tgz")))) }
 
 #' @export
-installJaspModule <- function(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, force = FALSE, cacheAble=TRUE, frameworkLibrary=NULL) {
+installJaspModule <- function(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, force = FALSE, cacheAble = TRUE, frameworkLibrary = NULL, verbose = FALSE) {
 
   isPkgArchive <- isModulePkgArchive(modulePkg)
 
@@ -48,24 +48,37 @@ installJaspModule <- function(modulePkg, libPathsToUse, moduleLibrary, repos, on
     }
   }
 
-    returnVal = 'null';
-		tryCatch(
-		    suppressWarnings({	
-          returnVal <- pkgbuild::with_build_tools(
-                    {
-                      if (hasRenvLockFile(modulePkg)) installJaspModuleFromRenv(       modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, cacheAble=cacheAble)
-                      else                            installJaspModuleFromDescription(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, cacheAble=cacheAble, frameworkLibrary=frameworkLibrary)
-                    },
-                    required=FALSE )
-        }),	
-		    error	= function(e) { .setRError(  paste0(toString(e), '\n', e$output, '\n', paste0(sys.calls(), collapse='\n'))) } 	
-		)
-		
-    return(returnVal);
+  options(renv.config.install.verbose = verbose)
 
-  return(
-    
+  messages <- utils::capture.output(
+    returnVal <- tryCatch(
+      expr = withCallingHandlers(
+        expr = {
+          pkgbuild::with_build_tools({
+            if (hasRenvLockFile(modulePkg)) installJaspModuleFromRenv(       modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, cacheAble = cacheAble)
+            else                            installJaspModuleFromDescription(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, cacheAble = cacheAble, frameworkLibrary = frameworkLibrary)
+          },
+          required = FALSE)
+        },
+        error = .addStackTrace),
+      error = function(e) e
+    )
   )
+
+  if (inherits(returnVal, "error")) {
+    handler <- mget(".setRError", envir = .GlobalEnv, mode = "function", ifnotfound = NA)[[".setRError"]]
+    if (is.na(handler))
+      handler <- cat
+
+    saveRDS(list(returnVal = returnVal, messages = messages, sysCalls = sys.calls()), file = "~/GitHub/jasp/deleteable/errorObj.rds")
+    handler(paste0(toString(returnVal), '\n',
+                   "Log:\n", paste(messages, collapse = "\n"), '\n',
+                   "Stacktrace:\n", paste(returnVal$stackTrace, collapse = "\n")))
+    return("null")
+  }
+
+  return(returnVal)
+
 }
 
 installJaspModuleFromRenv <- function(modulePkg, libPathsToUse, moduleLibrary, repos, onlyModPkg, prompt = interactive(), cacheAble=TRUE) {
@@ -249,10 +262,10 @@ getFileFromModule <- function(modulePkg, filename) {
 
     if(!any(found))
       stop(paste0("Can't find file '", filename, "' in archive '", modulePkg, "'"))
-    
+
     #this will only work properly if the requested file is in there only once but for things like DESCRIPTION that should be no problem
     filename <- files[found]
-    
+
     untar(tarfile=modulePkg, files=filename, exdir=temp)
     hereItGoes <- file.path(temp, filename)
   }
