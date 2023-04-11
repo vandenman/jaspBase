@@ -7,7 +7,7 @@ test_that("package installation from scratch works", {
   moduleLibrary   <- file.path(tempBuildFolder, "Modules", moduleName)
   modulePkg       <- file.path(mockJaspRoot,    "Modules", moduleName)
 
-  # let's not polute anybodies cache/ root
+  # let's not polute anybodies cache or root
   renvRootPath  <- file.path(tempRoot, "renv-root")
   renvCachePath <- file.path(tempRoot, "renv-cache")
   withr::local_envvar(c("RENV_PATHS_ROOT" = renvRootPath, "RENV_PATHS_CACHE" = renvCachePath))
