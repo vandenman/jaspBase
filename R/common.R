@@ -539,7 +539,7 @@ jaspResultsStrings <- function() {
     base::tryCatch(
       base::load(location$relativePath),
       error=function(e) e
-      #,warning=function(w) w #Commented out because if there *is* a warning, which there of course shouldnt be, the state wont be loaded *at all*. 
+      #,warning=function(w) w #Commented out because if there *is* a warning, which there of course shouldnt be, the state wont be loaded *at all*.
     )
   }
 
@@ -703,20 +703,23 @@ saveImage <- function(plotName, format, height, width)
       # Where available use the cairo devices, because:
       # - On Windows the standard devices use a wrong R_HOME causing encoding/font errors (INTERNAL-jasp/issues/682)
       # - On MacOS the standard pdf device can't deal with custom fonts (jasp-test-release/issues/1370) -- historically cairo could not display the default font well (INTERNAL-jasp/issues/186), but that seems fixed
-      if (capabilities("aqua"))
-        type <- "quartz"
-      else if (capabilities("cairo"))
-        type <- "cairo"
-      else
-        type <- "Xlib"
+      hasCairo <- capabilities("cairo")
+
+      if (!hasCairo) {
+        # no Cairo means that things will probably go very wrong, for example custom fonts will not work.
+        # Let's log some additional information...
+        warning("Platform has no Cairo support! Custom fonts may not be supported", domain = NA)
+        print("sessionInfo")
+        print(sessionInfo())
+        print("capabilities")
+        print(capabilities())
+
+      }
 
       # Open correct graphics device
       if (format == "eps") {
 
-        if (type == "cairo")
-          device <- grDevices::cairo_ps
-        else
-          device <- grDevices::postscript
+        device <- if (hasCairo) grDevices::cairo_ps else grDevices::postscript
 
         device(
           relativePath,
@@ -739,10 +742,7 @@ saveImage <- function(plotName, format, height, width)
 
       } else if (format == "pdf") {
 
-        if (type == "cairo")
-          device <- grDevices::cairo_pdf
-        else
-          device <- grDevices::pdf
+        device <- if (hasCairo) grDevices::cairo_pdf else grDevices::pdf
 
         device(
           relativePath,
