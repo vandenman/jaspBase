@@ -39,6 +39,19 @@ finishJaspResults <- function(jaspResultsCPP, calledFromAnalysis = TRUE) {
     other   = jaspResultsCPP$getOtherObjectsForState()
   )
 
+  tempDir <- "~/temp_jasp"
+  if (!dir.exists(tempDir)) {
+    dir.create(tempDir, recursive = TRUE)
+  }
+  if (length(dir(tempDir)) < 11) {
+    # save the state to a file
+    statePath <- file.path(tempDir, paste0("state", length(dir(tempDir)), ".RData"))
+    saveRDS(newState, file = statePath)
+    print(paste("State saved to", statePath, "with working directory:", getwd()))
+  } else {
+    print(paste("Too many states in", tempDir, "not saving state to file."))
+  }
+
   jaspResultsCPP$relativePathKeep <- .saveState(newState)$relativePath
 
   returnThis <- NULL
@@ -119,6 +132,7 @@ runJaspResults <- function(name, title, dataKey, options, stateKey, functionCall
       jaspAnalysisAbort=function(e) e
     )
 
+  print("After analysis function call")
   if (!jaspResultsCalledFromJasp()) {
 
     if (inherits(analysisResult, "error")) {
@@ -144,9 +158,12 @@ runJaspResults <- function(name, title, dataKey, options, stateKey, functionCall
   }
 
   if (inherits(analysisResult, "jaspAnalysisAbort")) {
+    print("jaspAnalysisAbort")
     jaspResultsCPP$send()
     return("null")
   } else if (inherits(analysisResult, "error")) {
+
+    print("some kind of error happened")
 
     if (inherits(analysisResult, "validationError")) {
       errorStatus  <- "validationError"
@@ -164,6 +181,9 @@ runJaspResults <- function(name, title, dataKey, options, stateKey, functionCall
 
     return(paste0("{ \"status\" : \"", errorStatus, "\", \"results\" : { \"title\" : \"error\", \"error\" : 1, \"errorMessage\" : \"", errorMessage, "\" } }", sep=""))
   } else {
+
+    print("no error, sending results but first sleeping for 10 seconds")
+    Sys.sleep(10)
 
     returnThis <- finishJaspResults(jaspResultsCPP)
 
@@ -660,7 +680,13 @@ jaspResultsStrings <- function() {
     return(list(relativePath = relativePath))
   }
 
-  try(suppressWarnings(base::save(state, file=relativePath, compress=FALSE)), silent = FALSE)
+  # try(suppressWarnings(base::save(state, file=relativePath, compress=FALSE)), silent = FALSE)
+  try(base::save(state, file=relativePath, compress=FALSE), silent = FALSE)
+  if (!file.exists(relativePath)) {
+    print(paste("Could not save state to", relativePath, "with working directory:", getwd()))
+  } else {
+    print(paste("State saved to", relativePath, "with working directory:", getwd()))
+  }
 
   return(list(relativePath = relativePath))
 }
@@ -675,7 +701,10 @@ jaspResultsStrings <- function() {
 
     base::tryCatch(
       base::load(location$relativePath),
-      error=function(e) e
+      error=function(e) {
+        print(paste("Error loading state file from:", location$relativePath, "with working directory:", getwd()))
+        e
+      }
       #,warning=function(w) w #Commented out because if there *is* a warning, which there of course shouldnt be, the state wont be loaded *at all*.
     )
   }

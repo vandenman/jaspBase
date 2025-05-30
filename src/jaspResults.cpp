@@ -49,7 +49,7 @@ void jaspResults::setResponseData(int analysisID, int revision)
 
 	_response["id"]			= analysisID;
 	_response["revision"]	= revision;
-	
+
 	Json::Value progress;
 	progress["value"]		= -1;
 	progress["label"]		= "";
@@ -125,7 +125,7 @@ jaspResults::~jaspResults()
 
 	if(_RStorageEnv != nullptr)
 		delete _RStorageEnv;
-	
+
 	_RStorageEnv = nullptr;
 }
 
@@ -264,6 +264,12 @@ void jaspResults::setOptions(std::string opts)
 
 	Json::Reader().parse(opts, _currentOptions);
 	jaspObject::currentOptions = _currentOptions;
+
+
+	if(_previousOptions != Json::nullValue)
+		jaspPrint("setOptions was called and previous options are: not NULL");
+	else
+		jaspPrint("setOptions was called and previous options are: NULL");
 
 	if(_previousOptions != Json::nullValue)
 		pruneInvalidatedData();

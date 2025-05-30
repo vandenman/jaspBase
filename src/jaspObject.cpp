@@ -529,27 +529,43 @@ void jaspObject::copyDependenciesFromJaspObject(jaspObject * other)
 
 bool jaspObject::checkDependencies(Json::Value currentOptions)
 {
+
+	jaspPrint("jaspObject::checkDependencies() called on " + _title);
+
 	if((_optionMustBe.size() + _optionMustContain.size() + _nestedOptionMustBe.size() + _nestedOptionMustContain.size()) != 0)
 	{
 
 		for(auto & keyval : _optionMustBe)
 			if(currentOptions.get(keyval.first, Json::nullValue) != keyval.second)
+			{
+				jaspPrint("jaspObject::checkDependencies() failed for optionMustBe: " + keyval.first);
 				return false;
+			}
 
 		for(auto & keyval : _optionMustContain)
 			if (!isJsonSubArray(keyval.second, currentOptions.get(keyval.first, Json::arrayValue)))
+			{
+				jaspPrint("jaspObject::checkDependencies() failed for optionMustContain: " + keyval.first);
 				return false;
+			}
 
 		for(auto & keyval : _nestedOptionMustBe)
 			if(getObjectFromNestedOption(keyval.first) != keyval.second)
+			{
+				jaspPrint("jaspObject::checkDependencies() failed for nestedOptionMustBe: " + nestedKeyToString(keyval.first, "$"))	;
 				return false;
+			}
 
 		for(auto & keyval : _nestedOptionMustContain)
 			if (!isJsonSubArray(keyval.second, getObjectFromNestedOption(keyval.first, Json::arrayValue)))
+			{
+				jaspPrint("jaspObject::checkDependencies() failed for nestedOptionMustContain: " + nestedKeyToString(keyval.first, "$"));
 				return false;
+			}
 
 	}
 
+	jaspPrint("jaspObject::checkDependencies() didn't fail on this object, now checking children (if any)");
 	checkDependenciesChildren(currentOptions);
 
 	return true;
@@ -681,7 +697,7 @@ Json::Value jaspObject::MixedRObject_to_JsonValue(Rcpp::List obj)
 	value["value"]  = RObject_to_JsonValue((Rcpp::RObject)data["value"]);
 	value["type"]   = RObject_to_JsonValue((Rcpp::RObject)data["type"]);
 	value["format"] = RObject_to_JsonValue((Rcpp::RObject)data["format"]);
-	
+
 
 	return value;
 
